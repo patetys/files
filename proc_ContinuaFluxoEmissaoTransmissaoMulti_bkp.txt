@@ -1,0 +1,5167 @@
+    
+CREATE PROCEDURE [dbo].[proc_ContinuaFluxoEmissaoTransmissaoMulti] (@Nosso_Numero varchar(20), @Num_PI bigint)    
+AS    
+ /*              
+     ***** ATENÇÃO *****              
+     Ao modificar esta Stored Procedure EM QUALQUER DOS AMBIENTES, favor avisar a todos os analistas relacionados abaixo.              
+     Descrever no e-mail o seu ajuste (se possível, apontando o trecho de código).              
+     Caso você queira ser avisado sobre ajustes nesta Stored Procedure, favor incluir seu endereço de e-mail na lista abaixo.              
+                   
+     rodrigo.bercot@cybersolutions.com.br, lvdelazari@sompo.com.br,             
+     erialdo@sompo.com.br, adrianot@sompo.com.br, jmiwai@sompo.com.br, lggomes@sompo.com.br           
+               
+     Se a sua alteração for muito grande, é uma boa ideia formatar a procedure usando a ferramenta abaixo:            
+     http://www.dpriver.com/pp/sqlformat.htm      
+  
+-- Teste  
+-- sp_recompile [proc_ContinuaFluxoEmissaoTransmissaoMulti]  
+-- exec [proc_ContinuaFluxoEmissaoTransmissaoMulti] '01825356388640287643', 1820900293      
+        
+  2017-06-06: Ajuste @codSegurado      
+  2017-06-20: Ajuste impedir 2 recordsets.    
+  2017-10-09: Ajuste Yasuda -> Sompo e telefones.    
+  2018-07-23: Ajuste para carregar verba comercial para o ramosdiversos.    
+  2018-08-28: Repique Online, tip_cotac = 'R'    
+  2018-10-24 - Frank: Inserção de dados na Ramosdiversos.dbo.tab_ped_lmi;    
+  2020-08-20: Ajuste Cartao Credito - juros    
+  2020-08-20: Ajuste TIP_DOC    
+  2020-09-03: Ajuste Cartao RD  
+  2020-12-15: Tarifa 1252/1250 - Imobiliario  
+  2021-04-27: Ajuste Serasa ramo 113  
+  2021-05-10: Validação da parcela de cartão de crédito  
+  2021-06-29: Migração do ajuste para transmissão da dll  
+  2021-07-12: Desativação do Boa Vista  
+  2021-09-30: Ajuste Serasa ramo 114  
+  2024-02-16: Ajuste BPM-SIES TerraFertil + MaqCampo  
+  2024-02-28: Ajuste adicional BPM-SIES TerraFertil + MaqCampo  
+ */    
+ SET TRANSACTION ISOLATION LEVEL READ UNCOMMITTED    
+ SET NOCOUNT ON    
+ SET XACT_ABORT ON  
+  
+DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';  
+  
+ BEGIN TRANSACTION @TranName  
+ BEGIN    
+  
+  BEGIN -- Declarando variáveis locais       
+   DECLARE @Status_Proc numeric(1),    
+       @Dat_Proc numeric(14, 0),    
+       @VarErro numeric(10),    
+       @Num_PI_Anterior bigint,    
+       @CNPJ_CPF numeric(14),    
+       @Cob_Tip_Logradouro varchar(3),    
+       @Cob_Nom_Logradouro varchar(50),    
+       @Cob_Complemento varchar(20),    
+       @Cob_Bairro varchar(30),    
+       @Cob_Cidade varchar(30),    
+       @Cob_UF varchar(2),    
+       @Cob_CEP varchar(8),    
+       @Cob_Telefones varchar(30),    
+       @NumDV numeric(7),    
+       @EndTelefone varchar(30),    
+       @DDDTelefone numeric(2),    
+       @EndTelefoneF numeric(30),    
+       @Observacao varchar(255),    
+       @Sexo varchar(2),    
+       @TipDocumento varchar(2),    
+       @NumDocumento varchar(30),    
+       @OrgaoExpedidor varchar(30),    
+       @DataEmissao numeric(8),    
+       @CodRamoAtiv numeric(2),    
+       @LetraRamoAtiv varchar(2),    
+       @Profissao varchar(30),    
+       @ValRenda numeric(15, 2),    
+       @NomSegurado varchar(60),    
+       @TipPessoa varchar(2),    
+       @EndTipLogradouro varchar(60),    
+       @EndNomLogradouro varchar(60),    
+       @EndNumLogradouro varchar(30),    
+       @EndComplemento varchar(60),    
+       @EndBairro varchar(60),    
+       @EndCidade varchar(60),    
+       @SigUF varchar(2),    
+       @NumCEP varchar(8),    
+       @CodSegurado varchar(8),    
+       @CodReg numeric(3),    
+       @FormaPagto numeric(1),    
+       @CobTipLogradouro varchar(60),    
+       @CobNomLogradouro varchar(60),    
+       @CobComplemento varchar(60),    
+       @CobBairro varchar(60),    
+       @CobCidade varchar(60),    
+       @CobSigUF varchar(2),    
+       @CobNumCEP varchar(8),    
+       @Novo_NosNumero AS varchar(20),    
+       @Continuar int,    
+       @CodRamo AS integer,    
+       @DatTerVig AS numeric(8),    
+   @Corretor1 AS numeric(7),    
+       @Corretor2 AS numeric(7),    
+       @Corretor3 AS numeric(7),    
+       @Corretor1Ant AS numeric(7),    
+       @Corretor2Ant AS numeric(7),    
+       @Corretor3Ant AS numeric(7),    
+       @Email1 AS varchar(600),    
+       @Email2 AS varchar(600),    
+       @Email3 AS varchar(600),    
+       @EmailAux AS varchar(600),    
+       @CorpoEmail AS varchar(200),    
+       @TipEmissao AS numeric(3),    
+       @Bens AS numeric(1),    
+       @ContaDeb AS numeric(15),    
+       @QtdAnexo AS numeric(4),    
+       @ApolAnterior AS numeric(10),    
+       @Retorno AS integer,    
+       @QtdFluxo AS integer,    
+       @QtdParcelas AS integer,    
+       @IndAntec AS integer,    
+       @PerJuros AS float,    
+       @PerJuros2 AS float,    
+       @NumPed AS numeric(6),    
+       @ProxDia AS integer,    
+       @IndPendencia AS integer,    
+       @DiaUtil AS datetime,    
+       @DiaSemana numeric(1),    
+       @Cont numeric(1),    
+       @Retorno2 numeric(1),    
+       @NumRefCorr varchar(15),    
+       @NumPag AS integer,    
+       @Val_Pr_Liquido AS numeric(18, 2),    
+       @Cod_user AS varchar(6),    
+       @TipCotac AS varchar(1),    
+       @TipCotacTriagem AS varchar(1),    
+       @Nosso_Numero_New AS varchar(20),    
+       @InspObr AS numeric(1),    
+       @NUM_LOGR_SEGURADO varchar(06),    
+       @DSC_COMPL_SEGURADO varchar(14),    
+       @NUM_LOGR_COBRANCA varchar(06),    
+       @DSC_COMPL_COBRANCA varchar(14),    
+       @cod_tip_doc AS bigint,    
+       @cod_origem AS int,    
+       @num_apol_mar AS numeric(10),    
+       @CodPlano numeric(4),    
+       @CodDizer numeric(3),    
+       @NumApolEndosso numeric(10),    
+       @CodRetorno tinyint,    
+       @DscRetorno varchar(60),    
+       @Cod_RamoSec numeric(03),    
+       @TIP_COMPENSACAO numeric(2),    
+       @COD_BCO_BOLETO int,    
+       @COD_BCO_COBR decimal(3),    
+       @COD_AGEN_BAS_COR decimal(4),    
+       @CNPJ_CPF_AGREGADO numeric(14),    
+       @CodRamo_AGREGADO integer,    
+       @Tipo_fone numeric(1),    
+       @TIP_AGREGADO numeric(1),    
+       @TIP_AGREGADO_PRINC numeric(1),    
+       @DAT_NASC_PRINC int,    
+       @DAT_NASC int,    
+       @DatRecCia AS numeric(8),    
+       @DatRecCiaUtil AS numeric(8),    
+       @Step int,    
+       @MENSAGEM varchar(max),    
+       @TxtEspecSusepImobiliario varchar(300),    
+    @TxtEspecSusepImobiliarioAux varchar(300),   
+       @CodTarifa numeric(4),    
+       @Qtd_parc numeric(4),  
+    @TextoClausula varchar(8000),  
+    @COD_TEXTO int,  
+    @NUM_SEQ  int,  
+    @COD_Reg int,  
+    @x varchar(max)  = '',  
+    @ParcelaCartao int = 0,  
+    @lmi_unico INT = 0,  
+    @NomeSocial varchar(40) = ''  
+  END    
+    
+  BEGIN TRY    
+   BEGIN -- Definindo valores iniciais de algumas variáveis       
+   RETORNO:    
+    
+    -- Zerando variáveis          
+    SET @DDDTelefone = 0    
+    SET @EndTelefoneF = 0    
+    SET @Status_Proc = 0    
+    SET @QtdFluxo = 0    
+    SET @Cod_user = ''    
+    SET @TipCotac = ''    
+    
+    -- Obter o Ramo, TipCotac e Usuário      
+    IF EXISTS (SELECT    
+      1    
+     FROM FTP_TAB_PED(NOLOCK)    
+     WHERE NOSSO_NUMERO = @Nosso_Numero    
+     AND COD_ESTIP = 20    
+     AND COD_RAMO IN (    
+     112,    
+     113    
+     ))    
+    BEGIN    
+     SELECT TOP 1    
+      @COD_USER = cod_user_digit_mf,    
+      @TIPCOTAC = tip_cotac,    
+      @CODRAMO = cod_ramo    
+     FROM    
+     RamosDiversos.dbo.Ftp_Tab_Ctrl_Emis    
+     WHERE NOSSO_NUMERO = @Nosso_Numero    
+    END    
+    ELSE    
+    BEGIN    
+     SELECT    
+      @COD_USER = cod_user_digit_mf,    
+      @TIPCOTAC = tip_cotac,    
+      @CODRAMO = cod_ramo    
+     FROM    
+     GED.dbo.tab_ctrl_emis    
+     WHERE num_pi = @NUM_PI    
+    END    
+   END    
+    
+   BEGIN -- Realizando Pré-tratativas do Imobiliário       
+    EXEC proc_PreTratativasImobiliarioFluxoEmissao @Nosso_Numero, @Num_PI    
+    
+    -- 2017-03-02: Ajuste para Imobiliario        
+    IF EXISTS (SELECT    
+      1    
+     FROM FTP_TAB_PED(NOLOCK)    
+     WHERE NOSSO_NUMERO = @Nosso_Numero    
+     AND (    
+     (COD_ESTIP = 20    
+     AND COD_RAMO IN (112, 113))    
+     OR (COD_ESTIP BETWEEN 5061 AND 5064    
+     AND COD_RAMO = 113)    
+     ))    
+    BEGIN    
+     SELECT TOP 1    
+      @COD_USER = cod_user_digit_mf,    
+      @TIPCOTAC = tip_cotac,    
+      @CODRAMO = cod_ramo    
+     FROM    
+     RamosDiversos.dbo.Ftp_Tab_Ctrl_Emis    
+     WHERE NOSSO_NUMERO = @Nosso_Numero    
+    END    
+    ELSE    
+    BEGIN    
+     SELECT    
+      @COD_USER = cod_user_digit_mf,    
+      @TIPCOTAC = tip_cotac,    
+      @CODRAMO = cod_ramo    
+     FROM    
+     GED.dbo.tab_ctrl_emis    
+     WHERE num_pi = @NUM_PI    
+    END    
+   END    
+    
+   BEGIN -- Fazendo tratamento de transmissões anteriores       
+    /*Se já transmitiu e deu erro, impede uma nova transmissao para os ramos 112, 113, 114 */    
+    IF EXISTS (SELECT    
+      E.nosso_numero    
+     FROM ramosdiversos..tab_erro_transmissao E    
+     JOIN ftp_tab_ped T    
+      ON T.nosso_numero = E.nosso_numero    
+     WHERE E.nosso_numero = @Nosso_Numero    
+     AND COD_ESTIP <> 20    
+     AND cod_ramo IN (    
+     112,    
+     113,    
+     114    
+     ))    
+    BEGIN    
+     RAISERROR (    
+     'Cotação transmitida anteriormente com erro, favor entrar em contato com o suporte técnico!',    
+     16, -- Severity.            
+     1 -- State.                      
+     );    
+    END    
+   END    
+    
+   PRINT 'INICIOU'    
+    
+   SELECT    
+    @QtdFluxo = COUNT(*)    
+   FROM    
+   ged.dbo.tab_ctrl_fluxo WITH (NOLOCK)    
+   WHERE num_pi = @Num_PI    
+    
+   SET @Step = 101    
+    
+   IF @TipCotac = ''    
+   BEGIN    
+    SELECT    
+     @TipCotac = tip_cotac    
+    FROM    
+    ramosdiversos.dbo.ftp_tab_ctrl_emis    
+    WHERE num_pi = @Num_PI    
+    
+    SET @Step = 102    
+   END    
+    
+   --Incluido pela Triagem SIES.                            
+   IF (@QtdFluxo <> 0)    
+   BEGIN    
+    PRINT 'achou ctrl fluxo '    
+    
+    IF (    
+     @TipCotac = '4'    
+     OR @TipCotac = '5'    
+     )    
+    BEGIN    
+     PRINT 'eh sies'    
+    
+     --***AJUSTES PARA EXCLUSÃO DE TABELAS PELO NOSSO NUMERO - SIES - 30/09/2013 - TAFLORENCIO                            
+     SELECT TOP 1    
+      @Nosso_Numero_New = nosso_numero_new    
+     FROM    
+     ramosdiversos.dbo.tab_ped_num_copia    
+     WHERE nosso_numero_old = @nosso_numero    
+     ORDER BY dat_copia DESC    
+    
+     SET @Step = 103    
+    
+     EXEC [dbo].[Proc_limpadadossies] @Nosso_Numero_New, @num_pi    
+    
+     SET @Step = 104    
+    
+     DELETE FROM [GED].[dbo].[tab_ctrl_emis]    
+     WHERE num_pi = @num_pi    
+    
+     SET @Step = 105    
+     SET @QtdFluxo = 0    
+    END    
+    -- CR102511 - Inicio                           
+    ELSE    
+    BEGIN    
+     -- Limpa os dados de transmissões com erros para refazer o processo.                      
+     IF (    
+      @CodRamo = 112    
+      OR @CodRamo = 113    
+      OR @CodRamo = 114    
+      )    
+     BEGIN    
+      SET @MENSAGEM = ''    
+    
+      SELECT TOP 1    
+       @Nosso_Numero_New = nosso_numero_new    
+      FROM    
+      ramosdiversos.dbo.tab_ped_num_copia    
+      WHERE nosso_numero_old = @nosso_numero    
+      ORDER BY dat_copia DESC    
+    
+      SET @Step = 106    
+    
+      EXEC dbo.Proc_limpadadosmulti @Nosso_Numero_New,    
+                     @MENSAGEM OUTPUT    
+    
+      SET @Step = 107    
+    
+      IF (@MENSAGEM <> '')    
+      BEGIN    
+       RAISERROR (    
+       @MENSAGEM,    
+       16, -- Severity.                      
+       1 -- State.                      
+       );    
+      END    
+    
+      SET @QtdFluxo = 0    
+     END    
+    END    
+   -- CR102511 - Fim                           
+   END --if (@QtdFluxo <> 0)                      
+    
+   SELECT TOP 1    
+    @CNPJ_CPF = num_cgc_cpf,    
+    @Cob_Telefones = num_fone,    
+    @NomSegurado = nom_segurado,    
+    @TipPessoa = tip_pessoa,    
+    @CobTipLogradouro = cod_tip_logr,    
+    @CobNomLogradouro = nom_logr,    
+    @CobComplemento = dsc_compl_logr,    
+    @CobBairro = nom_bairro,    
+    @CobCidade = nom_cid,    
+    @CobSigUF = sig_uf,    
+    @CobNumCEP = num_cep,    
+    @Sexo = sexo,    
+    @TipDocumento = cod_doc,    
+    @NumDocumento = num_doc,    
+    @OrgaoExpedidor = org_exp,    
+    @DataEmissao = dat_emis_doc,    
+    @CodRamoAtiv = cod_ramo_ativ,    
+    @Profissao = nom_empresa,    
+    @ValRenda = val_rendafatu,    
+    @NumDV = cod_unicidade,    
+    @DatTerVig = dat_ter_vig,    
+    @NumDV = cod_unicidade,    
+    @ContaDeb = num_cta_bas_cor,    
+    @CodRamo = cod_ramo,    
+    @QtdParcelas = qtd_parc,    
+    @NumPed = num_ped,    
+    @Val_Pr_Liquido = val_pr,    
+    @PerJuros2 = per_juro_frac,    
+    @codsegurado = LEFT(ISNULL(cod_segurado, ''), 8),    
+    @CodPlano = cod_estip,    
+    @CodDizer = cod_dizer,    
+    @NumApolEndosso = num_apol_an,    
+    @CodTarifa = cod_produto,    
+    @Qtd_parc = qtd_parc,  
+ @COD_Reg = cod_reg    
+   FROM    
+   ftp_tab_ped    
+   WHERE nosso_numero = @nosso_numero    
+   AND tip_transmissao = 1;    
+    
+  select TOP 1  @NomeSocial = NOM_SOCIAL from Ftp_Tab_Ped where nosso_numero = @nosso_numero  
+  
+   SET @Step = 108    
+    
+   IF (    
+    @CodRamo = 112    
+    OR @CodRamo = 113    
+    OR @CodRamo = 114    
+    )    
+   BEGIN    
+    UPDATE syasportal.dbo.tab_ped SET cod_sit_ped = 3 WHERE nosso_numero = @Nosso_Numero AND cod_sit_ped <> 3    
+    UPDATE syasportal.dbo.tab_ped SET COD_TIP_DOC = 2 WHERE nosso_numero = @Nosso_Numero AND COD_TIP_DOC <> 2    
+   END   
+  
+   if (@COD_Reg = 106 or @COD_Reg = 107)  
+   begin  
+  update ftp_tab_ped set qtd_parc = 0 where nosso_numero = @nosso_numero  
+  update ftp_tab_ctrl_emis set qtd_parc = 0 where nosso_numero = @nosso_numero  
+   end  
+    
+  --Inclusão de texto no imobiliário por cotação  
+  if(@CodPlano = 20 and @CodTarifa >= 1250)  
+  begin  
+  IF (@CodRamo = 112)  
+  BEGIN  
+   SELECT @TextoClausula = DESC_TEXTO, @NUM_SEQ = NUM_SEQ FROM TBM_TEXTO WHERE COD_TEXTO = 9020 AND COD_MODALIDADE = @CodPlano AND COD_TARIFA = @CodTarifa  
+  
+   INSERT INTO FTP_TAB_PED_TEXTOS(NOSSO_NUMERO,COD_ORG,COD_RAMO,NUM_PED,NUM_APOL,NUM_ENDO,NUM_PI,NUM_ITEM,COD_COBERT,TIPO_TEXTO,COD_TEXTO,DESC_TEXTO,NUM_SEQ)  
+   VALUES(@nosso_numero,0,@CodRamo,@NumPed,0,0,@Num_PI,1,1,1,9020,@TextoClausula,@NUM_SEQ)  
+  END  
+  ELSE  
+  BEGIN  
+   SELECT @TextoClausula = DESC_TEXTO, @NUM_SEQ = NUM_SEQ FROM TBM_TEXTO WHERE COD_TEXTO = 9030 AND COD_MODALIDADE = @CodPlano AND COD_TARIFA = @CodTarifa  
+  
+   INSERT INTO FTP_TAB_PED_TEXTOS(NOSSO_NUMERO,COD_ORG,COD_RAMO,NUM_PED,NUM_APOL,NUM_ENDO,NUM_PI,NUM_ITEM,COD_COBERT,TIPO_TEXTO,COD_TEXTO,DESC_TEXTO,NUM_SEQ)  
+   VALUES(@nosso_numero,0,@CodRamo,@NumPed,0,0,@Num_PI,1,1,1,9030,@TextoClausula,@NUM_SEQ)  
+  END    
+  
+  -- Tarifa-1252  
+  --if(@CodTarifa <= 1272)  
+  --begin  
+  -- SELECT @TextoClausula = DESC_TEXTO, @COD_TEXTO = COD_TEXTO, @NUM_SEQ = NUM_SEQ FROM TBM_TEXTO WHERE COD_TEXTO = 9040 AND COD_MODALIDADE = @CodPlano AND COD_TARIFA = @CodTarifa  
+  
+  -- INSERT INTO FTP_TAB_PED_TEXTOS(NOSSO_NUMERO,COD_ORG,COD_RAMO,NUM_PED,NUM_APOL,NUM_ENDO,NUM_PI,NUM_ITEM,COD_COBERT,TIPO_TEXTO,COD_TEXTO,DESC_TEXTO,NUM_SEQ)  
+  -- VALUES(@nosso_numero,0,@CodRamo,@NumPed,0,0,@Num_PI,1,1,1,@COD_TEXTO,@TextoClausula,@NUM_SEQ)  
+  
+  
+   IF ((select VALUE from ramosdiversos.dbo.tbm_configuracao_app where CHAVE = 'Aitva Resolucao382') <= getdate())  
+   BEGIN  
+    SELECT @TextoClausula = DESC_TEXTO,@COD_TEXTO = COD_TEXTO, @NUM_SEQ = NUM_SEQ FROM TBM_TEXTO WHERE COD_TEXTO = 9050 AND COD_MODALIDADE = @CodPlano AND COD_TARIFA = @CodTarifa  
+  
+    INSERT INTO FTP_TAB_PED_TEXTOS(NOSSO_NUMERO,COD_ORG,COD_RAMO,NUM_PED,NUM_APOL,NUM_ENDO,NUM_PI,NUM_ITEM,COD_COBERT,TIPO_TEXTO,COD_TEXTO,DESC_TEXTO,NUM_SEQ)  
+    VALUES(@nosso_numero,0,@CodRamo,@NumPed,0,0,@Num_PI,1,1,1,@COD_TEXTO,@TextoClausula,@NUM_SEQ)  
+   END  
+  --end  
+  end  
+  
+  --Valida fluxo de inspeção  
+ if (select top 1 1 from syasportal.dbo.tab_ped_transm a (nolock)   
+ inner join syasportal.dbo.tab_ped_loc b on b.nosso_numero = a.nosso_numero and b.insp_obr = 1  
+ inner join ramosdiversos.dbo.tab_trans_insp c (nolock) on c.nosso_numero = b.NOsso_numero  
+ --inner join [SPX21250PSQLNEO].YAS_ND.YAS.TAB_CTRL_EMIS d on D.NUM_PI = A.NUM_PI AND D.COD_IDEN_STAT_ACAO NOT IN(60,70,80,81,90)  
+ where cod_status_i = 0 and a.NUm_PI = @Num_PI) = 1  
+ Begin  
+  update ramosdiversos.dbo.tab_trans_insp set cod_status_i = 1 where nosso_numero = @nosso_numero  
+ end  
+  
+  
+   IF @CodPlano = 20    
+    AND @CodRamo IN (    
+    112,    
+    113,    
+    114    
+    )    
+   BEGIN    
+    -- DANIEL - Adicionar o número do logradouro do segurado ao complemento                    
+    SELECT    
+     @CobComplemento = LEFT(ISNULL(LTRIM(RTRIM(num_logr_segurado)), '') +    
+                                       CASE    
+                                        WHEN LEN(LTRIM(RTRIM(ISNULL(@CobComplemento, '')))) > 0 THEN ', '    
+                                        ELSE ''    
+                                       END + LTRIM(RTRIM(@CobComplemento)), 20)    
+    FROM    
+    ftp_tab_ctrl_emis_compl    
+    WHERE nosso_numero = @Nosso_Numero    
+    
+    -- DANIEL - Fim                    
+    SET @Step = 109    
+   END    
+    
+   SELECT    
+    @DAT_NASC_PRINC = ISNULL((SELECT TOP 1    
+     dat_nascimento    
+    FROM [ftp_tab_ctrl_emis_compl]    
+    WHERE nosso_numero = @nosso_numero)    
+    , 0);    
+    
+   SET @Step = 110    
+    
+   --Seleciona tipo de agregado                      
+   IF EXISTS (SELECT    
+     1    
+    FROM [RamosDiversos].[dbo].[ftp_tab_ped_agregados]    
+    WHERE num_pi = @num_pi)    
+   BEGIN    
+    SET @Step = 111    
+    SET @TIP_AGREGADO = 2 --Agregado                      
+    SET @TIP_AGREGADO_PRINC = 1 --Principal                      
+   END    
+    
+   IF @QtdFluxo = 0    
+   BEGIN    
+    PRINT 'INICIA EXECUCAO'    
+    
+    SET @Step = 112    
+    SET @ProxDia = 0    
+    SET @DiaUtil = GETDATE()    
+    
+    IF DATEPART(hh, @DiaUtil) >= 19    
+    BEGIN    
+     SET @DiaUtil = @DiaUtil + 1    
+    END    
+    
+    SET @ProxDia = 1    
+    SET @Cont = 0    
+    
+    WHILE (@Cont = 0)    
+    BEGIN    
+     SELECT    
+      @DiaSemana = DATEPART(w, @DiaUtil)    
+    
+     IF @DiaSemana = 7    
+      SET @DiaUtil = DATEADD(D, 2, @DiaUtil)    
+     ELSE    
+     BEGIN    
+      IF @DiaSemana = 1    
+       SET @DiaUtil = DATEADD(D, 1, @DiaUtil)    
+      ELSE    
+      BEGIN    
+       EXEC [Ged].[dbo].[Proc_feriado] @DiaUtil,    
+                       @Retorno2 OUTPUT    
+    
+       SET @Step = 113    
+    
+       IF @Retorno2 = 1    
+        SET @DiaUtil = DATEADD(D, 1, @DiaUtil)    
+       ELSE    
+        SET @Cont = 1    
+      END    
+     END    
+    END --while  (@Cont=0)                 
+    --PRINT 'PI ' + cast(@Num_PI as  varchar)                        
+    DELETE FROM [syasportal].[dbo].[tab_ped_clau]    
+    WHERE nosso_numero = @Nosso_Numero    
+     AND cod_clau = 315    
+    
+    SET @Step = 114    
+    
+    DELETE FROM [ramosdiversos].[dbo].[ftp_tab_ped_clau]    
+    WHERE nosso_numero = @Nosso_Numero    
+     AND cod_clau = 315    
+    
+    SET @Step = 115    
+    
+    UPDATE ramosdiversos..ftp_tab_ped    
+    SET val_pr_antec = p.val_pr_antec    
+    FROM ramosdiversos..ftp_tab_ped AS f    
+    INNER JOIN syasportal..tab_ped AS p    
+     ON f.nosso_numero = p.nosso_numero    
+    WHERE f.val_pr_antec <> p.val_pr_antec    
+    AND p.cod_agen_bas_cor = 0    
+    AND p.nosso_numero = @Nosso_Numero    
+    
+    SET @Step = 116    
+    
+    UPDATE ramosdiversos..tab_ctrl_emis    
+    SET num_ref_corr = '0'    
+    WHERE num_ref_corr = ''    
+    AND num_pi >= 1220000000    
+    
+    SET @Step = 117    
+    
+    PRINT 'PI ' + CAST(@Num_PI AS varchar) + ' REALIZANDO CONSULTA TAB_PED'    
+    
+    --**Ajuste Interfaces                        
+    --Preciso do Numero da Apólice Anterior apenas se for endosso                        
+    IF @CodDizer = 0    
+     SET @NumApolEndosso = 0    
+    
+    PRINT 'ENCONTROU? ' + @nosso_numero    
+    PRINT @NumDV    
+    PRINT @QtdParcelas    
+    
+    SELECT    
+     @INDANTEC = cod_iden_pag_antec    
+    FROM    
+    ftp_tab_ctrl_emis    
+    WHERE nosso_numero = @NOSSO_NUMERO    
+    AND cod_unicidade = @NUMDV    
+    
+    SET @Step = 118    
+    
+    SELECT    
+     @COD_BCO_BOLETO = cod_bco_boleto    
+    FROM    
+    ftp_tab_ctrl_emis_compl    
+    WHERE nosso_numero = @NOSSO_NUMERO    
+    AND cod_unicidade = @NUMDV    
+    
+    SET @Step = 119    
+    
+    SELECT    
+     @COD_BCO_COBR = cod_bco_cobr,    
+     @COD_AGEN_BAS_COR = cod_agen_bas_cor    
+    FROM    
+    ftp_tab_ped    
+    WHERE nosso_numero = @NOSSO_NUMERO    
+    AND cod_unicidade = @NUMDV    
+    
+    SET @Step = 120    
+    
+    --CARNE COM DEMAIS EM DEBITO / 'DEBITO                        
+    IF (    
+     @COD_BCO_BOLETO > 0    
+     AND @COD_BCO_COBR > 0    
+     )    
+     OR (    
+     @COD_AGEN_BAS_COR <> 0    
+     AND @COD_BCO_BOLETO = 0    
+     AND @COD_BCO_COBR > 0    
+     )    
+    BEGIN    
+     SET @TIP_COMPENSACAO = 2 --debito                        
+    END    
+    ELSE    
+    BEGIN    
+     SET @TIP_COMPENSACAO = 1 --carne                        
+    END    
+    
+    IF @COD_BCO_COBR <> 999 AND @COD_AGEN_BAS_COR <> 9999 -- NÃO SETA PARA CARTÃO DE CREDITO    
+    BEGIN    
+     IF @IndAntec = 1    
+      SELECT    
+       @PerJuros = val_ant    
+      FROM    
+      ramosdiversos.dbo.ftp_tab_ped_juros    
+      WHERE nosso_numero = @nosso_numero    
+      AND cod_unicidade = @NumDV    
+      AND num_parcela = @QtdParcelas    
+      AND tip_compensacao = @TIP_COMPENSACAO    
+     ELSE    
+      SELECT    
+       @PerJuros = val_pos    
+      FROM    
+      ramosdiversos.dbo.ftp_tab_ped_juros    
+      WHERE nosso_numero = @nosso_numero    
+      AND cod_unicidade = @NumDV    
+      AND num_parcela = @QtdParcelas    
+      AND tip_compensacao = @TIP_COMPENSACAO    
+    END    
+    
+    -- Erro emissão parcelamento - Apólice 1400963898 - Segurado: VIVIANE VARGAS DA SILVA - Residencial --> cartão de credito    
+ -- Adicionado @CodRamo 112, 113, 114  
+    IF @COD_BCO_COBR = 999 AND @COD_AGEN_BAS_COR = 9999 AND @CodRamo IN (112, 113, 114)   
+ BEGIN    
+  
+  --Migração do ajuste para transmissão da dll  
+  --Validação da parcela de cartão de crédito  
+  --set @x = isnull(convert(varchar(max),(select xml_receive from ramosdiversos.dbo.tab_controle_cartao where nosso_numero = @nosso_numero)),'')  
+   
+  --if (select len(ltrim(rtrim(@x)))) > 0  
+  --begin  
+  -- if (charindex('<tns:Installments>',@x)) > 0  
+  -- begin  
+  --  set @ParcelaCartao = (select replace(substring(@x,charindex('<tns:Installments>',@x) + len('<tns:Installments>'),2),'<',''))   
+      
+  --  if (@Qtd_parc <> @ParcelaCartao )  
+  --  begin  
+  --   set @Qtd_parc = @ParcelaCartao  
+  --  end            
+  -- end  
+  --end  
+  
+  
+   SELECT @PerJuros = PER_JUROS_POS FROM RAMOSDIVERSOS.DBO.TBM_JUROS WHERE COD_RAMO = @CodRamo AND TIP_COMPENSACAO = 4 AND COD_TARIFA = @CodTarifa and NUM_PARCELA = @Qtd_parc          
+    
+    UPDATE ramosdiversos.dbo.ftp_tab_ped SET PER_JURO_FRAC = @PerJuros WHERE nosso_numero = @nosso_numero AND cod_unicidade = @NumDV    
+    UPDATE SYASPORTAL.dbo.tab_ped SET PER_JURO_FRAC = @PerJuros WHERE nosso_numero = @nosso_numero     
+    
+    UPDATE ramosdiversos.dbo.ftp_Tab_Ctrl_Emis SET per_juros_neg = @PerJuros WHERE nosso_numero = @nosso_numero AND cod_unicidade = @NumDV    
+    UPDATE SYASPORTAL.dbo.Tab_Ctrl_Emis SET per_juros_neg = @PerJuros WHERE nosso_numero = @nosso_numero        
+    END    
+    
+    PRINT 'JUROS'    
+    PRINT @PerJuros    
+    
+    SET @Step = 122    
+    
+    IF @PerJuros IS NULL    
+    BEGIN    
+     SET @PerJuros = @PerJuros2    
+    END    
+    
+    IF @NumRefCorr = ''    
+     SET @NumRefCorr = '0'    
+    
+    SELECT TOP 1    
+     @TipEmissao = tip_emissao,    
+     @InspObr = insp_obr    
+    FROM    
+    ftp_tab_ped_loc    
+    WHERE nosso_numero = @nosso_numero    
+    AND cod_unicidade = @NumDV;    
+    
+    SET @Step = 123    
+    
+    SELECT    
+     @QtdAnexo = COUNT(*)    
+    FROM    
+    ftp_tab_ped_loc    
+    WHERE nosso_numero = @nosso_numero    
+    AND cod_unicidade = @NumDV;    
+    
+    SET @Step = 124    
+  
+   
+ --AJUSTE PARA INCLUIR OS DADOS DE ENDEREÇO DE LMI_UNICO - POIS O MESMO ESTA VINDO EM BRANCO EM ALGUNS CENÁRIOS  
+ SET @lmi_unico = (SELECT ISNULL(lmi_unico,0) FROM [RamosDiversos].[dbo].[ftp_tab_ped] WHERE nosso_numero = @Nosso_Numero AND cod_unicidade = @NumDV)  
+  
+   
+ IF (@lmi_unico = 1)  
+ BEGIN  
+  SELECT TOP 1    
+   @EndTelefone = num_fone,    
+   @EndTipLogradouro = cod_tip_logr,    
+   @EndNomLogradouro = nom_logr,    
+   @EndComplemento = dsc_compl_logr,    
+   @EndBairro = nom_bairro,    
+   @EndCidade = nom_cid,    
+   @SigUF = sig_uf,    
+   @NumCEP = num_cep    
+  FROM    
+  ftp_tab_ped_ender    
+  WHERE nosso_numero = @nosso_numero    
+  AND cod_unicidade = @NumDV;  
+    
+  IF(RTRIM(LTRIM(ISNULL(@EndTipLogradouro,''))) = '' OR RTRIM(LTRIM(ISNULL(@EndNomLogradouro,''))) = '' )   
+  BEGIN  
+   SELECT TOP 1    
+    @EndTelefone = num_fone,    
+    @EndTipLogradouro = cod_tip_logr,    
+    @EndNomLogradouro = nom_logr,    
+    @EndComplemento = dsc_compl_logr,    
+    @EndBairro = nom_bairro,    
+    @EndCidade = nom_cid,    
+    @SigUF = sig_uf,    
+    @NumCEP = num_cep    
+   FROM    
+   ftp_tab_ped    
+   WHERE nosso_numero = @nosso_numero    
+   AND cod_unicidade = @NumDV;   
+     
+   UPDATE SYASPORTAL..TAB_PED_ENDER SET NUM_FONE = @EndTelefone,COD_TIP_LOGR = @EndTipLogradouro,NOM_LOGR = @EndNomLogradouro,DSC_COMPL_LOGR = @EndComplemento,NOM_BAIRRO = @EndBairro,NOM_CID= @EndCidade,SIG_UF = @SigUF,NUM_CEP = @NumCEP WHERE NOSSO_NUMERO = @nosso_numero     
+   UPDATE ftp_tab_ped_ender SET  NUM_FONE = @EndTelefone,COD_TIP_LOGR = @EndTipLogradouro,NOM_LOGR = @EndNomLogradouro,DSC_COMPL_LOGR = @EndComplemento,NOM_BAIRRO = @EndBairro,NOM_CID= @EndCidade,SIG_UF = @SigUF,NUM_CEP = @NumCEP WHERE NOSSO_NUMERO = @nosso_numero    
+      
+  END    
+ END  
+ ELSE  
+ BEGIN  
+  SELECT TOP 1    
+   @EndTelefone = num_fone,    
+   @EndTipLogradouro = cod_tip_logr,    
+   @EndNomLogradouro = nom_logr,    
+   @EndComplemento = dsc_compl_logr,    
+   @EndBairro = nom_bairro,    
+   @EndCidade = nom_cid,    
+   @SigUF = sig_uf,    
+   @NumCEP = num_cep    
+  FROM    
+  ftp_tab_ped_ender    
+  WHERE nosso_numero = @nosso_numero    
+  AND cod_unicidade = @NumDV;   
+ END  
+    
+    SET @Step = 125    
+    SET @LetraRamoAtiv = ''    
+    
+    IF @TipPessoa = 1    
+    BEGIN    
+     IF @CodRamoAtiv = 1    
+      SET @LetraRamoAtiv = 'A'    
+    
+     IF @CodRamoAtiv = 2    
+      SET @LetraRamoAtiv = 'B'    
+    
+     IF @CodRamoAtiv = 3    
+      SET @LetraRamoAtiv = 'C'    
+    
+     IF @CodRamoAtiv = 4    
+      SET @LetraRamoAtiv = 'D'    
+    
+     IF @CodRamoAtiv = 5    
+      SET @LetraRamoAtiv = 'E'    
+    
+     IF @CodRamoAtiv = 6    
+      SET @LetraRamoAtiv = 'F'    
+    
+     IF @CodRamoAtiv = 7    
+      SET @LetraRamoAtiv = 'G'    
+    
+     IF @CodRamoAtiv = 8    
+      SET @LetraRamoAtiv = 'H'    
+    
+     IF @CodRamoAtiv = 9    
+      SET @LetraRamoAtiv = 'I'    
+    
+     IF @CodRamoAtiv = 10    
+      SET @LetraRamoAtiv = 'J'    
+    
+     IF @CodRamoAtiv = 11    
+      SET @LetraRamoAtiv = 'K'    
+    
+     IF @CodRamoAtiv = 12    
+      SET @LetraRamoAtiv = 'L'    
+    
+     IF @CodRamoAtiv = 13    
+      SET @LetraRamoAtiv = 'M'    
+    
+     IF @CodRamoAtiv = 14    
+      SET @LetraRamoAtiv = 'N'    
+    
+     IF @CodRamoAtiv = 15    
+      SET @LetraRamoAtiv = 'O'    
+    
+     IF @CodRamoAtiv = 16    
+      SET @LetraRamoAtiv = 'P'    
+    
+     IF @CodRamoAtiv = 17    
+      SET @LetraRamoAtiv = 'Q'    
+    
+     IF @CodRamoAtiv = 18    
+      SET @LetraRamoAtiv = 'R'    
+    
+     IF @CodRamoAtiv = 19    
+      SET @LetraRamoAtiv = 'S'    
+    
+     IF @CodRamoAtiv = 20    
+      SET @LetraRamoAtiv = 'T'    
+    
+     IF @CodRamoAtiv = 21    
+      SET @LetraRamoAtiv = 'U'    
+    
+     IF @CodRamoAtiv = 22    
+      SET @LetraRamoAtiv = 'V'    
+    
+     IF @CodRamoAtiv = 23    
+      SET @LetraRamoAtiv = 'W'    
+    
+     IF @CodRamoAtiv = 24    
+      SET @LetraRamoAtiv = 'X'    
+    
+     IF @CodRamoAtiv = 25    
+      SET @LetraRamoAtiv = 'Y'    
+    
+     IF @CodRamoAtiv = 26    
+      SET @LetraRamoAtiv = 'Z'    
+    END    
+    
+    --if @TipPessoa = 1                                        
+    SET @Continuar = 1    
+    
+    WHILE (@Continuar <> 0)    
+    BEGIN    
+     EXEC syas_emis.dbo.Proc_gerarnossonumero @Novo_NosNumero OUTPUT    
+    
+     SET @Step = 126    
+    
+     PRINT 'NOVO ' + @Novo_NosNumero    
+    
+     SELECT    
+      @Continuar = COUNT(*)    
+     FROM    
+     tab_ped    
+     WHERE nosso_numero = @Novo_NosNumero    
+    
+     SET @Step = 127    
+    END    
+    
+    --thais                            
+    INSERT INTO ramosdiversos.dbo.tab_ped_num_copia (nosso_numero_new,    
+    nosso_numero_old,    
+    dat_copia)    
+     VALUES (@Novo_NosNumero, @Nosso_Numero, CONVERT(varchar, GETDATE(), 112))    
+    
+    SET @Step = 128    
+    
+    -- Inserir tab_ped                            
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped] (nosso_numero,    
+    cod_org,    
+    cod_ramo,    
+    num_ped,    
+    num_apol,    
+    num_endo,    
+    num_apol_an,    
+    cod_reg,    
+    cod_bco_cobr,    
+    cod_agen_angar,    
+    cod_agen_indicr,    
+    num_cta_indicr,    
+    cod_unid_prod,    
+    cod_prod,    
+    cod_agen_bas_cor,    
+    num_cta_bas_cor,    
+    cod_segurado,    
+    nom_segurado,    
+    dsc_compl_segurado,    
+    num_cgc_cpf,    
+    cod_tip_logr,    
+    nom_logr,    
+    dsc_compl_logr,    
+    nom_bairro,    
+    nom_cid,    
+    sig_uf,    
+    num_cep,    
+    num_fone,    
+    cod_estip,    
+    val_coef_cms_pad,    
+    dat_ini_vig,    
+    dat_ter_vig,    
+    dat_emis,    
+    cod_moed,    
+    per_juro_frac,    
+    qtd_parc,    
+    qtd_anexo,    
+    cod_iden_praz,    
+    cod_pr_min_endo,    
+    cod_pr_min_parc,    
+    val_pr_antec,    
+    per_adic_form_pag,    
+    per_desc_form_pag,    
+    val_is,    
+    val_is_2,    
+    val_pr,    
+    val_pr_ref_tarif,    
+    val_pr_ref_resg,    
+    dat_ini_viag,    
+    cod_tip_liber,    
+    cod_iden_alt_corr,    
+    cod_user_digit,    
+    dat_digit,    
+    hor_digit,    
+    cod_user_liber,    
+    dat_liber,    
+    hor_liber,    
+    cod_sit_ped,    
+    cod_tip_doc,    
+    cod_dizer,    
+    qtd_copia,    
+    val_cust_emis,    
+    val_juro,    
+    val_iof,    
+    num_prop,    
+    cod_posi_atual,    
+    dat_mov_ini,    
+    dat_mov_ter,    
+    tip_cust_emis,    
+    val_cambio_emis,    
+    iden,    
+    num_pi,    
+    cod_produto,    
+    cod_protocolo,    
+    cod_sequencia,    
+    tip_pessoa,    
+    cod_ramo_ativ,    
+    cod_doc,    
+    num_doc,    
+    org_exp,    
+    dat_emis_doc,    
+    nom_empresa,    
+    sexo,    
+    dat_pri_calculo,    
+    ult_tarifa,    
+    cod_unicidade,    
+    cod_dig_agen_bas_cor,    
+    cod_ver_unici,    
+    per_desc_lmi,    
+    lmi_unico,    
+    num_cotac_lmi,    
+    ind_condgerais,    
+    ind_reentrada,    
+    nosso_numero_original)    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_apol_an],    
+      [cod_reg],    
+      [cod_bco_cobr],    
+      [cod_agen_angar],    
+      [cod_agen_indicr],    
+      [num_cta_indicr],    
+      [cod_unid_prod],    
+      [cod_prod],    
+      [cod_agen_bas_cor],    
+      [num_cta_bas_cor],    
+      [cod_segurado],    
+      [nom_segurado],    
+      [dsc_compl_segurado],    
+      [num_cgc_cpf],    
+      [cod_tip_logr],    
+      [nom_logr],    
+      [dsc_compl_logr],    
+      [nom_bairro],    
+      [nom_cid],    
+      [sig_uf],    
+      [num_cep],    
+      [num_fone],    
+      [cod_estip],    
+      [val_coef_cms_pad],    
+      [dat_ini_vig],    
+      [dat_ter_vig],    
+      [dat_emis],    
+      [cod_moed],    
+      @PerJuros,    
+      [qtd_parc],    
+      [qtd_anexo],    
+      [cod_iden_praz],    
+      [cod_pr_min_endo],    
+      2,    
+      [val_pr_antec],    
+      [per_adic_form_pag],    
+      [per_desc_form_pag],    
+      [val_is],    
+      [val_is_2],    
+      [val_pr],    
+      [val_pr_ref_tarif],    
+      [val_pr_ref_resg],    
+      [dat_ini_viag],    
+      [cod_tip_liber],    
+      [cod_iden_alt_corr],    
+      [cod_user_digit],    
+      [dat_digit],    
+      [hor_digit],    
+      [cod_user_liber],    
+      [dat_liber],    
+      [hor_liber],    
+      [cod_sit_ped],    
+      [cod_tip_doc],    
+      [cod_dizer],    
+[qtd_copia],    
+      [val_cust_emis],    
+      [val_juro],    
+      [val_iof],    
+      [num_prop],    
+      1,    
+      [dat_mov_ini],    
+      [dat_mov_ter],    
+      [tip_cust_emis],    
+      [val_cambio_emis],    
+      [iden],    
+      @Num_PI,    
+      [cod_produto],    
+      [cod_protocolo],    
+      [cod_sequencia],    
+      [tip_pessoa],    
+      [cod_ramo_ativ],    
+      [cod_doc],    
+      [num_doc],    
+      [org_exp],    
+      [dat_emis_doc],    
+      [nom_empresa],    
+      [sexo],    
+      [dat_pri_calculo],    
+      [ult_tarifa],    
+      [cod_unicidade],    
+      [cod_dig_agen_bas_cor],    
+      [cod_ver_unici],    
+      [per_desc_lmi],    
+      [lmi_unico],    
+      [num_cotac_lmi],    
+      [ind_condgerais],    
+      ind_reentrada,    
+      nosso_numero_original    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+ IF NOT EXISTS(SELECT 1 FROM [tab_ped] WHERE NUM_PI = @Num_PI)  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+  
+    SET @Step = 129    
+    
+    -- update [RamosDiversos].[dbo].[Tab_Ped]  set [COD_UNID_PROD] = 0 where [COD_UNID_PROD]  < 1000 and nosso_numero = @Nosso_Numero                               
+    PRINT '6 3'    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_clau]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [cod_clau],    
+      @Num_PI,    
+      [descricao]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_clau]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 130    
+    
+    PRINT '6 4'    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_cobert]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [tab_cobert],    
+      [cod_cobert],    
+      [val_is],    
+      [per_taxa],    
+      [per_desc_coml],    
+      [per_desc_exp],    
+      [val_pr],    
+      [val_pr_anu],    
+      [val_pr_tarif],    
+      [val_pr_tarif_anu],    
+      [val_pr_resg],    
+      [val_pr_resg_anu],    
+      [per_franq],    
+      [val_franq_min],    
+      [val_franq_max],    
+      @Num_PI    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_cobert]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+ IF NOT EXISTS(SELECT 1 FROM [tab_ped_cobert] WHERE NUM_PI = @Num_PI)  --ROLLBACK TRANSACTION @TranName  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+  
+    SET @Step = 131    
+    
+    PRINT '6 5'    
+    PRINT 'antes da cobert_compl'    
+    
+    -- DANIEL RIBEIRO - Imobiliário - Inicio                    
+    -- O Kit mar não cadastra nada na TAB_PED_COBERT_COMPL, então cadastrar agora.                    
+    IF (    
+     (@CodPlano = 20    
+     AND @CodRamo IN (112, 113))    
+     OR (@CodPlano BETWEEN 5061 AND 5064    
+     AND @CodRamo = 113)    
+     )    
+     AND NOT EXISTS (SELECT    
+      1    
+     FROM ftp_tab_ped_cobert_compl    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV)    
+    BEGIN    
+     SET @Step = 132    
+    
+     INSERT INTO ftp_tab_ped_cobert_compl (nosso_numero,    
+     cod_unicidade,    
+     num_item,    
+     cod_cobert,    
+     tab_cobert,    
+     cod_org,    
+     cod_ramo,    
+     num_ped,    
+     num_apol,    
+     num_endo,    
+     num_meses_pi,    
+     formula,    
+     cod_classe,    
+     val_fator_franq,    
+     alterar_cobert,    
+     val_risco_cob,    
+     num_pi,    
+     ajusteendosso,    
+     alteroufranquia,    
+     textofranquia,    
+     val_pr_orig,    
+     premioinformado,    
+     val_pr_batente,    
+     compl_desc_cobertura,    
+     per_desc_franq)    
+      SELECT    
+       TPC.nosso_numero,    
+       TPC.cod_unicidade,    
+       TPC.num_item,    
+       TPC.cod_cobert,    
+       TPC.tab_cobert,    
+       TPC.cod_org,    
+       TPC.cod_ramo,    
+       TPC.num_ped,    
+       TPC.num_apol,    
+       TPC.num_endo,    
+       CASE    
+        WHEN TPC.val_pr_tarif BETWEEN 0    
+         AND 12 THEN TPC.val_pr_tarif    
+        ELSE 0    
+       END AS Num_Meses_Pi,    
+       -- Gambi para retornar os meses do PI                    
+       '' AS Formula,    
+       1 AS Cod_Classe,    
+       0 AS Val_Fator_Franq,    
+       '' AS Alterar_Cobert,    
+       TPC.val_is AS Val_Risco_Cob,    
+       TPC.num_pi,    
+       NULL AS AjusteEndosso,    
+       NULL AS Alteroufranquia,    
+       CASE    
+        WHEN TPC.val_franq_min <> 0 AND    
+         TPC.per_franq <> 0 THEN CONVERT(varchar(10), CONVERT(int, TPC.per_franq)) + '% DOS PREJ. INDENIZ, LIMITADO AO MINIMO DE R$ ' + REPLACE(CONVERT(varchar(10), TPC.val_franq_min, 113), '.', ',')    
+        WHEN TPC.val_franq_min = 0 AND    
+         TPC.per_franq <> 0 THEN CONVERT(varchar(10), CONVERT(int, TPC.per_franq)) + '% DOS PREJ. INDENIZ'    
+        WHEN TPC.val_franq_min <> 0 AND    
+         TPC.per_franq = 0 THEN 'R$ ' + REPLACE(CONVERT(varchar(10), TPC.val_franq_min, 113), '.', ',')    
+        ELSE ''    
+       END AS TextoFranquia,    
+       TPC.val_pr AS VAL_PR_ORIG,    
+       '-1' AS PremioInformado,    
+       NULL AS VAL_PR_BATENTE,    
+       NULL AS Compl_Desc_Cobertura,    
+       NULL AS Per_Desc_Franq    
+      FROM    
+      ftp_tab_ped_cobert TPC    
+      WHERE TPC.nosso_numero = @Nosso_Numero    
+      AND TPC.cod_unicidade = @NumDV    
+    
+     SET @Step = 133    
+    
+     -- Atualizando o VAL_PR_TARIF para o valor correto                    
+     UPDATE ftp_tab_ped_cobert    
+     SET val_pr_tarif = val_pr    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+     SET @Step = 134    
+    
+     PRINT 'Inseriu na FTP_TAB_PED_COBERT_COMPL para o Imobiliario'    
+    END    
+    
+    -- DANIEL RIBEIRO - Imobiliário - FIM                   
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_cobert_compl] (NOSSO_NUMERO,    
+    COD_ORG,    
+    COD_RAMO,    
+    NUM_PED,    
+    NUM_APOL,    
+    NUM_ENDO,    
+    NUM_ITEM,    
+    TAB_COBERT,    
+    COD_COBERT,    
+    Num_Meses_Pi,    
+    Formula,    
+    Cod_Classe,    
+    Val_Fator_Franq,    
+    Alterar_Cobert,    
+    Val_Risco_Cob,    
+    NUM_PI,    
+    AjusteEndosso,    
+    Alteroufranquia,    
+    TextoFranquia,    
+    VAL_PR_ORIG,    
+    PremioInformado,    
+    VAL_PR_BATENTE,    
+    Compl_Desc_Cobertura,    
+    Per_Desc_Franq,    
+    Val_IS_ORIG,    
+    Per_Franq_ORIG,    
+    Val_VerbaComProp    
+    )    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [tab_cobert],    
+      [cod_cobert],    
+      [num_meses_pi],    
+      [formula],    
+      [cod_classe],    
+      [val_fator_franq],    
+      [alterar_cobert],    
+      [val_risco_cob],    
+      @Num_PI,    
+      ajusteendosso,    
+      alteroufranquia,    
+      textofranquia,    
+      val_pr_orig,    
+      premioinformado,    
+      val_pr_batente,    
+      compl_desc_cobertura,    
+      per_desc_franq,    
+      NULL,    
+      NULL,    
+      Val_VerbaComProp    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_cobert_compl]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 135    
+    
+    PRINT 'passou da cobert_compl'    
+    PRINT 'antes da cobert_franquia'    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_cobert_franquia]    
+     SELECT    
+      cod_ramo,    
+      cod_modalidade,    
+      cod_tarif,    
+      cod_cobert,    
+      cod_evento,    
+      num_ped,    
+      num_apol,    
+      num_item,    
+      num_endosso,    
+      @Num_PI,    
+      @Novo_NosNumero,    
+      val_min_franq,    
+      per_franq,    
+      texto_franquia,    
+      texto_observacoes,    
+      multiplo_franquia    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_cobert_franquia]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 136    
+    
+    PRINT 'passou da cobert_franquia'    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_corr]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [cod_corr],    
+      [per_corr],    
+      [num_ordem_corr],    
+      @NUm_PI    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_corr]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+ IF NOT EXISTS(SELECT 1 FROM [tab_ped_corr] WHERE NUM_PI = @Num_PI)  --ROLLBACK TRANSACTION @TranName  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+  
+    SET @Step = 137    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_coss]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [cod_coss],    
+      [per_coss],    
+      @Num_PI    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_coss]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 138    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_ender]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [cod_tip_logr],    
+      [nom_logr],    
+      [dsc_compl_logr],    
+      [nom_bairro],    
+      [nom_cid],    
+      [sig_uf],    
+      [num_cep],    
+      [num_fone],    
+      @Num_PI,    
+      [cod_reg_cons],    
+      [num_reg_cons]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_ender]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 139    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_espec]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_espec],    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_pag],    
+      [qtd_vias],    
+      [espec_lin1],    
+      [espec_lin2],    
+      [espec_lin3],    
+      [espec_lin4],    
+      [espec_lin5],    
+      [espec_lin6],    
+      [espec_lin7],    
+      [espec_lin8],    
+      [espec_lin9],    
+      [espec_lin10],    
+      [espec_lin11],    
+      [espec_lin12],    
+      [espec_lin13],    
+      [espec_lin14],    
+      [espec_lin15],    
+      [espec_lin16],    
+      [espec_lin17],    
+      [espec_lin18],    
+      [espec_lin19],    
+      [espec_lin20],    
+      @Num_PI    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_espec]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 140    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_fat_risco]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [cod_fator],    
+      [dsc_compl_fator],    
+      @Num_PI    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_fat_risco]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 141    
+    
+    --                  insert into [RamosDiversos].[dbo].[Tab_Ped_Insp]                            
+    --                  (NOSSO_NUMERO, [COD_ORG], [COD_RAMO], [NUM_PED], [NUM_ITEM], [NUM_INSP], [DAT_CADASTRO], [PESS_CONT], [NUM_TEL], [NUM_LOGR_RISCO])                          
+    --                  SELECT @Novo_NosNumero, [COD_ORG], [COD_RAMO], [NUM_PED], [NUM_ITEM], [NUM_INSP], [DAT_CADASTRO], [PESS_CONT], [NUM_TEL], [NUM_LOGR_RISCO] FROM [RamosDiversos].[dbo].[ftp_Tab_Ped_Insp]              
+    -- where nosso_numero = @Nosso_Numero and cod_unicidade =  @NumDV                            
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_insp] (nosso_numero,    
+    [cod_org],    
+    [cod_ramo],    
+    [num_ped],    
+    [num_item],    
+    [num_insp],    
+    [dat_cadastro],    
+    [pess_cont],    
+    [num_tel],    
+    [num_logr_risco])    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_item],    
+      [num_insp],    
+      [dat_cadastro],    
+      [pess_cont],    
+      [num_tel],    
+      [num_logr_risco]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_insp]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 142    
+    
+    -- CR102511 - Inicio                      
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_insp_compl] (cod_ramo,    
+    nosso_numero,    
+    num_item,    
+    num_pi,    
+    pess_contato_2,    
+    pess_contato_3,    
+    num_tel_2,    
+    num_tel_3,    
+    dsc_email,    
+    dsc_ponto_ref)    
+     SELECT    
+      cod_ramo,    
+      @Novo_NosNumero,    
+      num_item,    
+      @Num_PI,    
+      pess_contato_2,    
+      pess_contato_3,    
+      num_tel_2,    
+      num_tel_3,    
+      dsc_email,    
+      dsc_ponto_ref    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_insp_compl]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    -- CR102511 - Fim                      
+    SET @Step = 143    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_juros]    
+     SELECT    
+      @Novo_NosNumero,    
+      [num_parcela],    
+      [val_pos],    
+      [val_ant],    
+      tip_compensacao    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_juros]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 144    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_loc]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [cod_tip_logr_risco],    
+      [nom_logr_risco],    
+      [dsc_compl_risco],    
+      [nom_bairro_risco],    
+      [nom_cid_risco],    
+      [sig_uf_risco],    
+      [num_cep_risco],    
+      [per_desc_apar],    
+      [per_desc_progres],    
+      [per_is_vr],    
+      [val_coef_is_vr],    
+      [val_vr],    
+      [tab_clasf],    
+      [cod_clasf],    
+      [cod_compl_clasf],    
+      [dsc_clasf],    
+      [cod_classe_ocup],    
+      [cod_constr],    
+      [cod_user_digit],    
+      [dat_digit],    
+      [hor_digit],    
+      [cod_user_liber],    
+      [dat_liber],    
+      [hor_liber],    
+      [cod_sit_item],    
+      [per_bonus],    
+      [qtd_empreg],    
+      [num_insp],    
+      [cod_iden_segur_01],    
+      [cod_iden_segur_02],    
+      [cod_iden_segur_03],    
+      [cod_iden_segur_04],    
+      [cod_iden_segur_05],    
+      [cod_iden_segur_06],    
+      [cod_iden_segur_07],    
+      [cod_iden_segur_08],    
+      [cod_iden_segur_09],    
+      [cod_iden_segur_10],    
+      [per_tot_segur],    
+      [cod_iden_protec_01],    
+      [cod_iden_protec_02],    
+      [cod_iden_protec_03],    
+      [cod_iden_protec_04],    
+      [cod_iden_protec_05],    
+      [cod_iden_protec_06],    
+      [cod_iden_protec_07],    
+      [cod_iden_protec_08],    
+      [cod_iden_protec_09],    
+      [cod_iden_protec_10],    
+      [per_tot_protec],    
+      [cod_produto],    
+      [cod_regiao],    
+      [cod_iden_tarif],    
+      @Num_PI,    
+      [tip_emissao],    
+      [num_apol_anterior],    
+      [num_item_anterior],    
+      [ind_sinistro],    
+      [ren_con_seguradora],    
+      [ren_con_apolice],    
+      [ren_con_item],    
+      [tip_cobert],    
+      [insp_obr],    
+      [insp_agend],    
+      [dig_bens],    
+      [cob_bens],    
+      [ind_sin_inspec],    
+      [cod_dizeritem]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+ IF NOT EXISTS(SELECT 1 FROM [tab_ped_loc] WHERE NUM_PI = @Num_PI)  --ROLLBACK TRANSACTION @TranName  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+    SET @Step = 145    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_loc_bem]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [dsc_bem],    
+      [val_bem],    
+      [cod_bem],    
+      [cod_seq]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc_bem]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 146    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_loc_bicicleta]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      @Num_PI,    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [cod_seq],    
+      [descricao],    
+      [valor]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc_bicicleta]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 147    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_obras_Arte] (NOSSO_NUMERO,    
+    COD_ORG,    
+    COD_RAMO,    
+    Num_PI,    
+    NUM_PED,    
+    NUM_APOL,    
+    NUM_ENDO,    
+    NUM_ITEM,    
+    COD_SEQ,    
+    DESCRICAO,    
+    VALOR)    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      @Num_PI,    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [cod_seq],    
+      [descricao],    
+      [valor]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_obras_Arte]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 148    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_all_risks] (NOSSO_NUMERO,    
+    COD_ORG,    
+    COD_RAMO,    
+    Num_PI,    
+    NUM_PED,    
+    NUM_APOL,    
+    NUM_ENDO,    
+    NUM_ITEM,    
+    COD_SEQ,    
+    DESCRICAO,    
+    VALOR)    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      @Num_PI,    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [cod_seq],    
+      [descricao],    
+      [valor]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_all_risks]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_loc_lmi]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [nom_logr],    
+      [nom_bairro],    
+      [nom_cid],    
+      [sig_uf],    
+      [num_cep],    
+      @Num_PI,    
+      [num_seq]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc_lmi]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 148    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_loc_seguro]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [dsc_outro_seguro],    
+      [cod_seguradora],    
+      [num_ordem],    
+      [num_apol_ant],    
+      [num_item_ant],    
+      [ind_sinistro]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc_seguro]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 149    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_obs]    
+     SELECT    
+      @Novo_NosNumero,    
+      [num_item],    
+      [observacao]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_obs]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 150    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_venc]    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [num_parc],    
+      [dat_venc]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_venc]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 151    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_dizer]    
+ SELECT    
+      @Novo_NosNumero,    
+      cod_org,    
+      cod_ramo,    
+      num_ped,    
+      num_apol,    
+      num_endo,    
+      num_seq,    
+      dsc_dizer_endo    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_dizer]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 152    
+    
+    --Projeto Prolabore                            
+    INSERT INTO [RamosDiversos].[dbo].[tab_canal_emiss]    
+     SELECT    
+      @Novo_NosNumero,    
+      num_seq,    
+      @NUm_PI,    
+      num_apol,    
+      num_compl,    
+      tip_canal,    
+      cod_canal,    
+      cod_corretor,    
+      perc_canal,    
+      qtd_parc_pag,    
+      qtd_parc_apol,    
+      cod_form_pag_ag    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_canal_emiss]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 153    
+    
+    --Inicio Formularios                                                              
+    PRINT 'Tab_Ctrl_Emis_Compl'    
+    
+    -- CR96144 - inclusão dos campos: COD_BANCO_CRE,COD_AGENC_CRE,COD_CONTA_CRE,CPF_CNPJ_CRE                        
+    -- REQ 416107 - Adicionado o campo DIG_AGENC_CRE                      
+    INSERT INTO [RamosDiversos].[dbo].[tab_ctrl_emis_compl] (nosso_numero,    
+    num_pi,    
+    cod_ramo,    
+    num_prop,    
+    num_apol,    
+    num_endo,    
+    parcelas_impressao_avista,    
+    parcelas_impressao_30dias,    
+    email_contato,    
+    ind_impr_apol,    
+    ind_prolabore,    
+    ind_agenciamento,    
+    dat_digit,    
+    hor_digit,    
+    cod_bco_boleto,    
+    per_desc_agrav,    
+    cod_origem,    
+    num_apol_mar,    
+    num_logr_segurado,    
+    dsc_compl_segurado,    
+    num_logr_cobranca,    
+    dsc_compl_cobranca,    
+    estado_civil,    
+    dat_nascimento,    
+    cod_banco_cre,    
+    cod_agenc_cre,    
+    cpf_cnpj_cre,    
+    dig_agenc_cre,    
+    ind_cond_constituido,    
+    indice_ipc,    
+    suprimir_batente,    
+    tip_res_cre,    
+    cod_conta_cre,    
+    cod_dig_conta,    
+    Ind_Org_Publico,    
+    val_verbacom,    
+    Ind_Apol_Digital,    
+    Cod_Ramo_Principal )    
+     SELECT    
+      @Novo_NosNumero,    
+      @NUm_PI,    
+      [cod_ramo],    
+      [num_prop],    
+      [num_apol],    
+      [num_endo],    
+      [parcelas_impressao_avista],    
+      [parcelas_impressao_30dias],    
+      [email_contato],    
+      [ind_impr_apol],    
+      [ind_prolabore],    
+      [ind_agenciamento],    
+      [dat_digit],    
+      [hor_digit],    
+      [cod_bco_boleto],    
+      per_desc_agrav,    
+      cod_origem,    
+      num_apol_mar,    
+      num_logr_segurado,    
+      dsc_compl_segurado,    
+      num_logr_cobranca,    
+      dsc_compl_cobranca,    
+      estado_civil,    
+      dat_nascimento,    
+      cod_banco_cre,    
+      cod_agenc_cre,    
+      cpf_cnpj_cre,    
+      dig_agenc_cre,    
+      ind_cond_constituido,    
+      indice_ipc,    
+      suprimir_batente,    
+      tip_res_cre,    
+      cod_conta_cre,    
+      cod_dig_conta,    
+      Ind_Org_Publico,    
+      val_verbacom,    
+      Ind_Apol_Digital,    
+      Cod_Ramo_Principal     
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ctrl_emis_compl]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 154    
+    PRINT 'Tab_Mov_Agen'    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_mov_agen] ([nosso_numero],    
+    [num_seq],    
+    [num_pi],    
+    [num_apol_mov],    
+    [num_compl_mov],    
+    [ref_mov],    
+    [tipo_mov],    
+    [vl_premio_liq_mov],    
+    [qtd_item_mov],    
+    [dat_grav],    
+    [cod_user])    
+     SELECT    
+      @Novo_NosNumero,    
+      [num_seq],    
+      @NUm_PI,    
+      [num_apol_mov],    
+      [num_compl_mov],    
+      [ref_mov],    
+      [tipo_mov],    
+      [vl_premio_liq_mov],    
+      [qtd_item_mov],    
+      [dat_grav],    
+      [cod_user]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_mov_agen]    
+     WHERE [nosso_numero] = @Nosso_Numero    
+     AND cod_unicidade = @NumDV   
+    
+    SET @Step = 155    
+    
+    PRINT 'Tab_Ped_Agregados'    
+    
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_agregados] ([nosso_numero],    
+    [num_pi],    
+    [cod_org],    
+    [cod_ramo],    
+    [num_ped],    
+    [num_apol],    
+    [num_endo],    
+    [tip_agregado],    
+    [nom_segurado],    
+    [num_cgc_cpf],    
+    [cod_tip_logr],    
+    [nom_logr],    
+    [dsc_compl_logr],    
+    [num_logr],    
+    [nom_bairro],    
+    [nom_cid],    
+    [sig_uf],    
+    [num_cep],    
+    [tipo_fone],    
+    [num_ddd_fone],    
+    [num_fone],    
+    [num_ramal],    
+    [tip_pessoa],    
+    [cod_ramo_ativ],    
+    [cod_doc],    
+    [num_doc],    
+    [org_exp],    
+    [dat_emis_doc],    
+    [dat_nasc],    
+    [nom_empresa],    
+    [sexo],    
+    [renda_fatura])    
+     SELECT    
+      @Novo_NosNumero,    
+      [num_pi],    
+      [cod_org],    
+      [cod_ramo],    
+      [num_ped],    
+      [num_apol],    
+      [num_endo],    
+      [tip_agregado],    
+      [nom_segurado],    
+      [num_cgc_cpf],    
+      [cod_tip_logr],    
+      [nom_logr],    
+      [dsc_compl_logr],    
+      [num_logr],    
+      [nom_bairro],    
+      [nom_cid],    
+      [sig_uf],    
+      [num_cep],    
+      [tipo_fone],    
+      [num_ddd_fone],    
+      [num_fone],    
+      [num_ramal],    
+      [tip_pessoa],    
+      [cod_ramo_ativ],    
+      [cod_doc],    
+      [num_doc],    
+      [org_exp],    
+      [dat_emis_doc],    
+      [dat_nasc],    
+      [nom_empresa],    
+      [sexo],    
+      [renda_fatura]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_agregados]    
+     WHERE [nosso_numero] = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 156    
+    
+    PRINT 'Tab_Ped_Loc_Compl'    
+    
+    -- CR96144 - inclusão do campo: BonusAlterado                        
+    INSERT INTO [RamosDiversos].[dbo].[tab_ped_loc_compl] (nosso_numero,    
+    num_pi,    
+    cod_org,    
+    cod_ramo,    
+    num_ped,    
+    num_apol,    
+    num_endo,    
+    num_item,    
+    ind_verbasep,    
+    val_vr_lc,    
+    val_lmg_lc,    
+    per_is_vr_lc,    
+    coef_is_vr_lc,    
+    tip_plano_vida,    
+    cod_plano_cobertura,    
+    qtd_vidas,    
+    val_lmg_vida,    
+    ind_aux_funeral,    
+    val_lmg_funeral,    
+    ind_inc_conjuge,    
+    val_aux_cesta,    
+    possui_elevador,    
+    bonusalterado,    
+    flg_enviarcertificado,    
+    txt_observacoes,    
+    ind_statusinspecao,    
+    COD_RESPOSTA,CLAUSULANAODEPRECIACAO,DescComlCongenereIncorporado)    
+     SELECT    
+      @Novo_NosNumero,    
+      @NUm_PI,    
+      cod_org,    
+      cod_ramo,    
+      num_ped,    
+      num_apol,    
+      num_endo,    
+      num_item,    
+      ind_verbasep,    
+      val_vr_lc,    
+      val_lmg_lc,    
+      per_is_vr_lc,    
+      coef_is_vr_lc,    
+      tip_plano_vida,    
+      cod_plano_cobertura,    
+      qtd_vidas,    
+      val_lmg_vida,    
+      ind_aux_funeral,    
+      val_lmg_funeral,    
+      ind_inc_conjuge,    
+      val_aux_cesta,    
+      possui_elevador,    
+      bonusalterado,    
+      flg_enviarcertificado,    
+      txt_observacoes,    
+      ind_statusinspecao,    
+      COD_RESPOSTA,CLAUSULANAODEPRECIACAO,DescComlCongenereIncorporado    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc_compl]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 157    
+    
+    PRINT 'Tab_Ped_Telefones'    
+    
+    INSERT INTO [RAMOSDIVERSOS].[DBO].tab_ped_telefones ([tip_telefone],    
+    [ddd_telefone],    
+    [numero_telefone],    
+    [ramal_telefone],    
+    [obs_telefone],    
+    [ind_principal],    
+    [nosso_numero],    
+    [num_pi],    
+    [num_apol],    
+    [num_endo])    
+     SELECT    
+      [tip_telefone],    
+      [ddd_telefone],    
+      [numero_telefone],    
+      [ramal_telefone],    
+      [obs_telefone],    
+      [ind_principal],    
+      @NOVO_NOSNUMERO,    
+      @NUM_PI,    
+      [num_apol],    
+      [num_endo]    
+     FROM    
+     [RAMOSDIVERSOS].[DBO].[ftp_tab_ped_telefones]    
+     WHERE nosso_numero = @NOSSO_NUMERO    
+     AND cod_unicidade = @NUMDV    
+    
+    SET @Step = 158    
+    
+    PRINT 'Tab_Ped_Loc_Pessoas'    
+    
+    INSERT INTO [RamosDiversos].[dbo].tab_ped_loc_pessoas ([tip_loc_pessoa],    
+    [nom_pessoa],    
+    [tip_pessoa],    
+    [num_cpf_cnpj],    
+    [tip_cobert],    
+    [per_participacao],    
+    [nosso_numero],    
+    [num_pi],    
+    [num_apol],    
+    [num_endo],    
+    [num_item],    
+    [tip_doc],    
+    [num_doc])    
+     SELECT    
+      [tip_loc_pessoa],    
+      [nom_pessoa],    
+      [tip_pessoa],    
+      [num_cpf_cnpj],    
+      [tip_cobert],    
+      [per_participacao],    
+      @Novo_NosNumero,    
+      @NUm_PI,    
+      [num_apol],    
+      [num_endo],    
+      [num_item],    
+      [tip_doc],    
+      [num_doc]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_loc_pessoas]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+    SET @Step = 159    
+    
+    --Fim Formularios                                              
+    PRINT 'Tab_Ped_Textos'    
+    
+    /*                      
+    REQ 416107                      
+    Alterações realizadas para acrescentar o campo novo <Num_Seq> da Tabela <TAB_PED_TEXTOS>                       
+    */  
+   
+    INSERT INTO [RamosDiversos].[dbo].tab_ped_textos ([nosso_numero],    
+    [cod_org],    
+    [cod_ramo],    
+    [num_ped],    
+    [num_apol],    
+    [num_endo],    
+    [num_pi],    
+    [num_item],    
+    [cod_cobert],    
+    [tipo_texto],    
+    [cod_texto],    
+    [desc_texto],    
+    [num_seq])    
+     SELECT    
+      @Novo_NosNumero,    
+      [cod_org],    
+      [cod_ramo],    
+      @NumPed,    
+      [num_apol],    
+      [num_endo],    
+      @Num_PI,    
+      [num_item],    
+      [cod_cobert],    
+      [tipo_texto],    
+      [cod_texto],    
+      [desc_texto],    
+      [num_seq]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ped_textos]    
+     WHERE [nosso_numero] = @Nosso_Numero    
+    
+    SET @Step = 160    
+    
+    SELECT    
+     @NumPag = COUNT(*)    
+    FROM    
+    ramosdiversos.dbo.ftp_tab_ped_espec    
+    WHERE nosso_numero = @Nosso_Numero    
+    AND cod_unicidade = @NumDV    
+    
+    SET @NumPag = @NumPag + 1    
+    SET @Step = 161    
+    
+    IF (    
+     @CodRamo = 112    
+     OR @CodRamo = 113    
+     OR @CodRamo = 114    
+     )    
+    BEGIN    
+     DELETE [RamosDiversos].[dbo].tab_ped_liberacao_serasa    
+     WHERE [nosso_numero] = @Nosso_Numero    
+    
+     INSERT INTO [RamosDiversos].[dbo].tab_ped_liberacao_serasa (num_pi,    
+     nosso_numero,    
+     cod_user_alter,    
+     dat_alter)    
+      SELECT    
+       @Num_PI,    
+       @Novo_NosNumero,    
+       cod_user_alter,    
+       dat_alter    
+      FROM    
+      [RamosDiversos].[dbo].ftp_tab_ped_liberacao_serasa    
+      WHERE [nosso_numero] = @Nosso_Numero    
+    END    
+    
+    --11.20 ajuste CRQ000000384675                 
+    --Preencher a tabela tab_ped_texto_apol                
+    IF @CodRamo IN (    
+     112,    
+     113,    
+     114    
+     )    
+    BEGIN    
+     DELETE FROM tab_ped_texto_apol    
+     WHERE num_pi = @Num_PI    
+    
+     EXEC [Proc_retornatexto] @Num_PI    
+    END    
+    --tiago    
+    IF @TipCotac = '4'    
+     OR @TipCotac = '5'    
+    BEGIN    
+     SELECT TOP 1    
+      @DatRecCia = dat_rec_cia    
+     FROM    
+     ramosdiversos.dbo.ftp_tab_ctrl_emis    
+     WHERE num_pi = @Num_PI    
+     SET @DatRecCiaUtil = @DatRecCia    
+    END    
+    ELSE    
+    BEGIN    
+     SET @DatRecCia = CONVERT(varchar, GETDATE(), 112)    
+     SET @DatRecCiaUtil = CONVERT(varchar, @DiaUtil, 112)    
+    END    
+    --tiago     
+    INSERT INTO [RamosDiversos].[dbo].[tab_ctrl_emis]    
+     SELECT    
+      @Novo_NosNumero,    
+      @Num_PI,    
+      [num_bloq],    
+      [cod_unid],    
+      [cod_ramo],    
+      [dat_ini_vig],    
+      [dat_ter_vig],    
+      [cod_corr],    
+      [per_corr],    
+      [cod_corr_2],    
+      [per_corr_2],    
+      [cod_corr_3],    
+      [per_corr_3],    
+      [nom_seg],    
+      @QtdAnexo,    
+      [num_apol_ant],    
+      [dsc_obs_prop],    
+      [tip_cotac],    
+      [num_cotac],    
+      [per_juros_neg],    
+      'O',    
+      [dat_digit],    
+      [hor_digit],    
+      [cod_iden_stat_acao],    
+      [cod_user_digit],    
+      CONVERT(varchar, @DiaUtil, 112),    
+      [hor_digit_mf],    
+      [cod_user_digit_mf],    
+      [val_pr_tot],    
+      [cod_iden_classe],    
+      [cod_iden_cobr],    
+      [num_prop],    
+      [dat_canc_apol],    
+      [cod_tip_doc],    
+      @DatRecCiaUtil,    
+      [num_ref_corr],    
+      [dat_emis],    
+      [num_apol],    
+      [num_endo],    
+      [val_pr_emis],    
+      [val_pr_liq],    
+      [per_tot_coss],    
+      [qtd_parc],    
+      [cod_iden_stat_resp],    
+      [cod_iden_sac],    
+      [cod_prod],    
+      [val_is],    
+      [per_desc_coml],    
+      [num_cgc_cpf],    
+      [cod_iden_pessoa],    
+      [cod_iden_pag_antec],    
+      [dig_bloqueto]    
+     FROM    
+     [RamosDiversos].[dbo].[ftp_tab_ctrl_emis]    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_unicidade = @NumDV    
+    
+ IF NOT EXISTS(SELECT 1 FROM [tab_ctrl_emis] WHERE NUM_PI = @Num_PI)  --ROLLBACK TRANSACTION @TranName  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+  
+    SET @Step = 162    
+    
+    -- update [RamosDiversos].[dbo].[tab_ctrl_emis] set [cod_unid] = 0 where [cod_unid] < 1000 and nosso_numero = @Novo_NosNumero                            
+    UPDATE [RamosDiversos].[dbo].[tab_ctrl_emis]    
+    SET tip_cotac = 1    
+    WHERE nosso_numero = @Novo_NosNumero    
+    AND tip_cotac = 0    
+    
+    --Não permitir que transmita com tip_cotac = 2 sem ter siscota atrelado ao PI    
+    if not exists(select nosso_numero from  syasportal.dbo.P0045400 where nosso_numero = @Nosso_Numero)    
+    Begin    
+     UPDATE [RamosDiversos].[dbo].[tab_ctrl_emis]    
+     SET tip_cotac = 1    
+     WHERE nosso_numero = @Novo_NosNumero    
+     AND tip_cotac = 2    
+    
+     UPDATE syasportal.[dbo].[tab_ctrl_emis]    
+     SET tip_cotac = 1    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND tip_cotac = 2    
+    end    
+    
+    SET @Step = 163    
+    
+    SELECT    
+     @Corretor1 = cod_corr,    
+     @Corretor2 = cod_corr_2,    
+     @Corretor3 = cod_corr_3,    
+     @ApolAnterior = num_apol_ant,    
+     @cod_tip_doc = cod_tip_doc    
+    FROM    
+    [RamosDiversos].[dbo].[tab_ctrl_emis]    
+    WHERE nosso_numero = @Novo_NosNumero    
+    
+    SET @Step = 164    
+    
+    IF @ApolAnterior <> 0    
+     SELECT    
+      @Corretor1Ant = cod_corr,    
+      @Corretor2Ant = cod_corr_2,    
+      @Corretor3Ant = cod_corr_3    
+     FROM    
+     [RamosDiversos].[dbo].[tab_ctrl_emis]    
+     WHERE num_apol = @ApolAnterior    
+    
+    SET @Step = 165    
+    
+    IF @Corretor1 = 99601    
+    BEGIN    
+     INSERT INTO ramosdiversos..tab_ped_espec (nosso_numero,    
+     cod_espec,    
+     cod_org,    
+     cod_ramo,    
+     num_ped,    
+     num_apol,    
+     num_endo,    
+     num_pag,    
+     qtd_vias,    
+     espec_lin1,    
+     espec_lin2,    
+     espec_lin3,    
+     espec_lin4,    
+     espec_lin5,    
+     espec_lin6,    
+     espec_lin7,    
+     espec_lin8,    
+     espec_lin9,    
+     espec_lin10,    
+     espec_lin11,    
+     espec_lin12,    
+     espec_lin13,    
+     espec_lin14,    
+     espec_lin15,    
+     espec_lin16,    
+     espec_lin17,    
+     espec_lin18,    
+     espec_lin19,    
+     espec_lin20,    
+     num_pi)    
+      VALUES (@Novo_NosNumero, 8508, 0, 113, @numPEd, 0, 0, 1, 3, ' ', 'CLAUSULA PARTICULAR 001', '------------------------', ' ', 'FICA ENTENDIDO E CONCORDADO QUE, EXCLUI-SE A ALINEA  L  DA CLAUSULA 6 - BENS', 'NAO COMPREENDIDOS NO SEGURO, CONSTANTE DAS
+  
+    
+    
+    
+    
+    
+    
+    
+    
+    
+ CONDICOES GERAIS .', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', ' ', @Num_PI)    
+    END    
+    
+    SET @Step = 166    
+    
+    -- Criar CTRL_EMIS                            
+    DELETE FROM [GED].[dbo].[tab_ctrl_emis]    
+    WHERE num_pi = @num_pi    
+    
+    SET @Step = 167    
+    
+    INSERT INTO [GED].[dbo].[tab_ctrl_emis] ([num_pi],    
+    [num_bloq],    
+    [cod_unid],    
+    [cod_ramo],    
+    [dat_ini_vig],    
+    [dat_ter_vig],    
+    [cod_corr],    
+    [per_corr],    
+    [cod_corr_2],    
+    [per_corr_2],    
+    [cod_corr_3],    
+    [per_corr_3],    
+    [nom_seg],    
+    [qtd_anex],    
+    [num_apol_ant],    
+    [dsc_obs_prop],    
+    [tip_cotac],    
+    [num_cotac],    
+    [per_juros_neg],    
+    [cod_envi_doc],    
+    [dat_digit],    
+    [hor_digit],    
+    [cod_iden_stat_acao],    
+    [cod_user_digit],    
+    [dat_digit_mf],    
+    [hor_digit_mf],    
+    [cod_user_digit_mf],    
+    [val_pr_tot],    
+    [cod_iden_classe],    
+    [cod_iden_cobr],    
+    [num_prop],    
+    [dat_canc_apol],    
+    [cod_tip_doc],    
+    [dat_rec_cia],    
+    [num_ref_corr],    
+    [dat_emis],    
+    [num_apol],    
+    [num_endo],    
+    [val_pr_emis],    
+    [val_pr_liq],    
+    [per_tot_coss],    
+    [qtd_parc],    
+    [cod_iden_stat_resp],    
+    [cod_iden_sac],    
+    [cod_prod],    
+    [val_is],    
+    [per_desc_coml],    
+    [num_cgc_cpf],    
+    [cod_iden_pessoa],    
+    [cod_iden_pag_antec])    
+     SELECT    
+      num_pi,    
+      [num_bloq],    
+      [cod_unid],    
+      [cod_ramo],    
+      [dat_ini_vig],    
+      [dat_ter_vig],    
+      [cod_corr],    
+      [per_corr],    
+      [cod_corr_2],    
+      [per_corr_2],    
+      [cod_corr_3],    
+      [per_corr_3],    
+      [nom_seg],    
+      [qtd_anex],    
+      [num_apol_ant],    
+      [dsc_obs_prop],    
+      [tip_cotac],    
+      [num_cotac],    
+      [per_juros_neg],    
+      [cod_envi_doc],    
+      [dat_digit],    
+      [hor_digit],    
+      [cod_iden_stat_acao],    
+      [cod_user_digit],    
+      [dat_digit_mf],    
+      [hor_digit_mf],    
+      [cod_user_digit_mf],    
+      [val_pr_tot],    
+      [cod_iden_classe],    
+      [cod_iden_cobr],    
+      0,    
+      [dat_canc_apol],    
+      [cod_tip_doc],    
+      @DatRecCia,    
+      [num_ref_corr],    
+      [dat_emis],    
+      [num_apol],    
+      [num_endo],    
+      [val_pr_emis],    
+      [val_pr_liq],    
+      [per_tot_coss],    
+      [qtd_parc],    
+      [cod_iden_stat_resp],    
+      [cod_iden_sac],    
+      [cod_prod],    
+      [val_is],    
+      [per_desc_coml],    
+      [num_cgc_cpf],    
+      [cod_iden_pessoa],    
+      [cod_iden_pag_antec]    
+     FROM    
+     ramosdiversos.dbo.tab_ctrl_emis    
+     WHERE nosso_numero = @Novo_NosNumero    
+    
+ IF NOT EXISTS(SELECT 1 FROM [GED].[dbo].[tab_ctrl_emis] WHERE NUM_PI = @Num_PI)  --ROLLBACK TRANSACTION @TranName  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+  
+    SET @Step = 168    
+    
+    --  update [GED].[dbo].[tab_ctrl_emis] set [cod_unid] = 0 where [cod_unid] < 1000 and num_pi = @Num_PI                            
+    PRINT '13'    
+    
+    IF ISNULL(@EndTelefone, '0') = '0'    
+     SET @EndTelefone = '0'    
+    
+    -- Atualiza SISCAD                                  
+    /*         higienização 1200619                                
+                    [NOME_RAZAO] = @NOMSEGURADO,                            
+              retornado na ficha 1200757  */    
+    --OBTEM O TELEFONE DE ACORDO COM O CADASTRADO NA TABELA PARA ATUALZAR O SISCAD                 
+    SELECT    
+     @DDDTelefone = ddd_telefone,    
+     @EndTelefoneF = numero_telefone    
+    FROM    
+    [RamosDiversos].[dbo].[ftp_tab_ped_telefones]    
+    WHERE nosso_numero = @NOSSO_NUMERO    
+    AND cod_unicidade = @NUMDV    
+    AND ind_principal = 1 --TEL PRINCIPAL                      
+    
+    SET @Step = 169    
+    
+    IF EXISTS (SELECT    
+      1    
+     FROM [P0044800].[dbo].[t0044800]    
+     WHERE num_cgc_cpf = @CNPJ_CPF)    
+    BEGIN    
+     SET @Step = 170    
+    
+     UPDATE [P0044800].[dbo].[t0044800]    
+     SET [tip_pessoa] = @TipPessoa,    
+       [cod_tip_logr] = @EndTipLogradouro,    
+       [nom_logr] = @EndNomLogradouro,    
+       [dsc_compl_logr] = @EndComplemento,    
+       [nom_bairro] = @EndBairro,    
+       [nom_cid] = @EndCidade,    
+       [sig_uf] = @SigUF,    
+       [num_cep] = @NumCEP,    
+       [num_ddd_fone] = @DDDTelefone,    
+       [num_fone] = @EndTelefoneF,    
+       [dat_nasc] = @DAT_NASC_PRINC,    
+       [sexo] = @Sexo,    
+       [tip_docum] = @TipDocumento,    
+       [num_docum] = @NumDocumento,    
+       [nom_org_exped] = @OrgaoExpedidor,    
+       [dat_exped] = @DataEmissao,    
+       [nom_profissao] = @Profissao,    
+       [ramo_ativ_empr] = @LetraRamoAtiv,    
+       [cod_identificador] = @codsegurado,    
+       [dat_alteracao] = CONVERT(varchar, GETDATE(), 112),    
+       [cod_user] = 'TRANSM',    
+       [subtip_pessoa] = @TipPessoa,    
+       [rendafatu] = @ValRenda,  
+    NOME_SOCIAL = @NomeSocial  
+     WHERE [num_cgc_cpf] = @CNPJ_CPF    
+    
+     SET @Step = 171    
+    
+     --AJUSTE PARA ATUALIZAR O NOME DO SEGURADO DE ACORDO COM O CADASTRO NO SISCAD                                              
+     SELECT    
+      @NomSegurado = nome_razao    
+     FROM    
+     [P0044800].[dbo].[t0044800]    
+     WHERE num_cgc_cpf = @CNPJ_CPF    
+    
+     SET @Step = 172    
+    
+     UPDATE ramosdiversos.dbo.tab_ped    
+     SET nom_segurado = @NomSegurado    
+     WHERE nosso_numero = @Novo_NosNumero    
+    
+     SET @Step = 173    
+    
+     UPDATE ramosdiversos.dbo.tab_ctrl_emis    
+     SET nom_seg = @NomSegurado    
+     WHERE nosso_numero = @Novo_NosNumero    
+    
+     SET @Step = 174    
+    END    
+    ELSE    
+    BEGIN    
+     INSERT INTO [P0044800].[dbo].[t0044800] ([nome_razao],    
+     [nom_abrev],    
+     [nom_contato],    
+     [tip_pessoa],    
+     [num_cgc_cpf],    
+     [cod_tip_logr],    
+     [nom_logr],    
+     [dsc_compl_logr],    
+     [nom_bairro],    
+     [nom_cid],    
+     [sig_uf],    
+     [num_cep],    
+     [num_ddd_fone],    
+     [num_fone],    
+     [num_ddd_fax],    
+     [num_fax],    
+     [dat_nasc],    
+     [sexo],    
+     [tip_docum],    
+     [num_docum],    
+     [nom_org_exped],    
+     [dat_exped],    
+     [email],    
+     [nom_profissao],    
+     [ramo_ativ_empr],    
+     [nome_contato],    
+     [cod_banco],    
+     [cod_agen],    
+     [num_cta_cor],    
+     [dig_cta_cor],    
+     [cod_identificador],    
+     [tip_corretor],    
+     [tip_segurado],    
+     [tip_estipulante],    
+     [tip_oficina],    
+     [tip_vistoriador],    
+     [tip_beneficiario],    
+     [tip_irregular],    
+     [dat_cadastro],    
+     [dat_alteracao],    
+     [cod_user],    
+     [doc_anexos],    
+     [nom_loctrab],    
+     [subtip_pessoa],    
+     [altera_nome],    
+     [num_pi],    
+     [divergencia],    
+     [rendafatu],  
+  NOME_SOCIAL)    
+      VALUES (@NOMSEGURADO, '', '', @TipPessoa, @CNPJ_CPF, @EndTipLogradouro, @EndNomLogradouro, @EndComplemento, @EndBairro, @EndCidade, @SigUF, @NumCEP, 0, RIGHT(@EndTelefoneF, 8), NULL, NULL, @DAT_NASC_PRINC, @Sexo, @TipDocumento, @NumDocumento,    
+      @OrgaoExpedidor, @DataEmissao, NULL, @Profissao, @LetraRamoAtiv, NULL, NULL, NULL, NULL, NULL, @CODSEGURADO, NULL, NULL, NULL, NULL, NULL, NULL, NULL, CONVERT(varchar, GETDATE(), 112), 0, '', NULL, NULL, @TipPessoa, 0, NULL, NULL, @ValRenda,@NomeSocial)    
+    
+     SET @Step = 175    
+    END    
+    
+    -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD TAB_CONTATOS INICIO                          
+    INSERT INTO [P0044800].[DBO].tab_contatos (num_cgc_cpf,    
+    tipo_fone,    
+    num_ddd_fone,    
+    num_fone,    
+    num_ramal,    
+    dsc_obs,    
+    num_pi,    
+    cod_fone_principal,    
+    dt_alteracao)    
+     SELECT    
+      @CNPJ_CPF,    
+      tip_telefone,    
+      ddd_telefone,    
+      numero_telefone,    
+      ramal_telefone,    
+      obs_telefone,    
+      num_pi,    
+      ind_principal,    
+      CONVERT(varchar, GETDATE(), 112)    
+     FROM    
+     [RAMOSDIVERSOS].[DBO].[tab_ped_telefones] TEL    
+     WHERE TEL.nosso_numero = @NOVO_NOSNUMERO    
+     AND NOT EXISTS (SELECT    
+      CONT.num_fone    
+     FROM p0044800.dbo.tab_contatos CONT    
+     WHERE CONT.num_fone = TEL.numero_telefone    
+     AND CONT.num_cgc_cpf = @CNPJ_CPF)    
+    
+    SET @Step = 176    
+    
+    -- FIM                            
+    IF ISNULL(@Cob_Telefones, '0') = '0'    
+     SET @Cob_Telefones = '0'    
+    
+    IF NOT EXISTS (SELECT    
+      *    
+     FROM [P0044800].[dbo].[t0044807]    
+     WHERE num_pi = @num_pi)    
+    BEGIN    
+     SET @Step = 177    
+    
+     INSERT INTO [P0044800].[dbo].[t0044807] ([num_pi],    
+     [num_cgc_cpf],    
+     [dat_emis],    
+     [dat_ter_vig],    
+     [num_apol],    
+     [num_endo],    
+     [cod_tip_logr],    
+     [nom_logr],    
+     [dsc_compl_logr],    
+     [nom_bairro],    
+     [nom_cid],    
+     [sig_uf],    
+     [num_cep],    
+     [num_ddd_fone],    
+     [num_fone],    
+     [tip_agregado],    
+     [dat_cadastro],    
+     [dat_alteracao],    
+     [cod_user],    
+     [cod_tip_logr_resid],    
+     [nom_logr_resid],    
+     [num_logr_resid],    
+     [dsc_compl_logr_resid],    
+     [nom_bairro_resid],    
+     [nom_cid_resid],    
+     [sig_uf_resid],    
+     [num_cep_resid])    
+      VALUES (@Num_PI, @CNPJ_CPF, 0, @DatTerVig, 0, 0, @CobTipLogradouro, @CobNomLogradouro, @CobComplemento, @CobBairro, @CobCidade, @CobSigUF, @CobNumCEP, 0, @Cob_Telefones, @TIP_AGREGADO_PRINC,    
+      CONVERT(varchar, GETDATE(), 112), CONVERT(varchar, GETDATE(), 112), 'TRANSM', @CobTipLogradouro, @CobNomLogradouro, 0, @CobComplemento, @CobBairro, @CobCidade, @CobSigUF, @CobNumCEP)    
+  
+ IF NOT EXISTS(SELECT 1 FROM [P0044800].[dbo].[t0044807] WHERE NUM_PI = @Num_PI)  --ROLLBACK TRANSACTION @TranName  
+ begin  
+  ROLLBACK TRANSACTION @TranName   
+  return  
+ end  
+    END    
+    
+    SET @Step = 178    
+    
+    SELECT    
+     @NUM_LOGR_SEGURADO = num_logr_segurado,    
+     @DSC_COMPL_SEGURADO = dsc_compl_segurado,    
+     @NUM_LOGR_COBRANCA = num_logr_cobranca,    
+     @DSC_COMPL_COBRANCA = dsc_compl_cobranca,    
+     @cod_origem = ISNULL(cod_origem, 0),    
+     @num_apol_mar = ISNULL(num_apol_mar, 0)    
+    FROM    
+    [RamosDiversos].[dbo].[ftp_tab_ctrl_emis_compl]    
+    WHERE nosso_numero = @Nosso_Numero    
+    AND cod_unicidade = @NumDV    
+    
+    SET @Step = 179    
+    
+    SELECT TOP 1    
+     @Cod_RamoSec = cod_ramo_sec    
+    FROM    
+    ramosdiversos..ftp_tab_ped_cobert AS F    
+    INNER JOIN ramosdiversos..ftp_tab_ped AS P    
+     ON P.nosso_numero = F.nosso_numero    
+    INNER JOIN ramosdiversos..tab_cobert AS C    
+     ON C.cod_ramo = F.cod_ramo    
+     AND C.tab_cobert = cod_estip    
+     AND cod_produto = cod_tarif_ini    
+     AND C.cod_cobert = F.cod_cobert    
+    WHERE F.nosso_numero = @Nosso_Numero    
+    AND F.cod_unicidade = @NumDV    
+    AND cod_ramo_sec <> @CodRamo    
+    
+    SET @Step = 180    
+    
+    -- Ajuste Evo                        
+    IF @Cod_RamoSec = 0    
+     OR @Cod_RamoSec IS NULL    
+     SET @Cod_RamoSec = @CodRamo    
+    
+    -- Obtem variáveis que podem ser utilizadas nas verificaçoes...                            
+    -- dentro deste IF                            
+    SELECT    
+     @TipCotac = tip_cotac    
+    FROM    
+    ged.dbo.tab_ctrl_emis    
+    WHERE num_pi = @Num_PI    
+    
+    SET @Step = 181    
+        
+        
+    --INSERÇÃO DE DADOS NA TAB_PED_LMI    
+    --2018-10-24 - Frank: Inserção de dados na Ramosdiversos.dbo.tab_ped_lmi;    
+            
+ INSERT INTO [RamosDiversos].[dbo].[Tab_Ped_LMI]    
+           ([NOSSO_NUMERO]    
+           ,[COD_ORG]    
+           ,[COD_RAMO]    
+           ,[NUM_PED]    
+           ,[NUM_APOL]    
+           ,[NUM_ENDO]    
+           ,[TAB_COBERT]    
+           ,[COD_COBERT]    
+           ,[VAL_IS]    
+           ,[PER_FRANQ]    
+           ,[VAL_FRANQ_MIN]    
+           ,[VAL_FRANQ_MAX]    
+           ,[NUM_PI]    
+           ,[NUM_MESES_PI])    
+     SELECT @Novo_NosNumero    
+           ,[COD_ORG]    
+           ,[COD_RAMO]    
+           ,[NUM_PED]    
+           ,[NUM_APOL]    
+           ,[NUM_ENDO]    
+           ,[TAB_COBERT]    
+           ,[COD_COBERT]    
+           ,[VAL_IS]    
+           ,[PER_FRANQ]    
+           ,[VAL_FRANQ_MIN]    
+           ,[VAL_FRANQ_MAX]    
+           ,@NUM_PI    
+           ,[NUM_MESES_PI]    
+          FROM RamosDiversos..Ftp_Tab_Ped_LMI    
+          WHERE NOSSO_NUMERO = @NOSSO_NUMERO    
+    
+  SET @Step = 182    
+        
+      
+    
+    --**Ajuste Interfaces - Simony                        
+    -- Ajuste Evo                                     
+    PRINT 'AJUSTE INTERFACE'    
+    
+    SET @CodRetorno = 0    
+    
+    IF PATINDEX('%[^0-9]%', @NUM_LOGR_COBRANCA) > 0    
+     SET @NUM_LOGR_COBRANCA = LEFT(@NUM_LOGR_COBRANCA, PATINDEX('%[^0-9]%', @NUM_LOGR_COBRANCA) - 1)    
+    
+    IF PATINDEX('%[^0-9]%', @NUM_LOGR_SEGURADO) > 0    
+     SET @NUM_LOGR_SEGURADO = LEFT(@NUM_LOGR_SEGURADO, PATINDEX('%[^0-9]%', @NUM_LOGR_SEGURADO) - 1)    
+    SET @Step = 1    
+    
+    EXEC p0044800.dbo.Sp_interfacecadastro @CNPJ_CPF,    
+                        @NUM_PI,    
+                        @NUM_LOGR_COBRANCA,    
+                        @NUM_LOGR_SEGURADO,    
+                        @DSC_COMPL_COBRANCA,    
+                        @DSC_COMPL_SEGURADO,    
+                        @CodRamo,    
+                        @CodPlano,    
+                        @Cod_RamoSec,    
+                        @NumApolEndosso,  
+      @CodRetorno OUTPUT,  
+      @DscRetorno OUTPUT    
+    
+    SET @Step = 2    
+    
+    IF @CodRetorno <> 0    
+    BEGIN    
+     PRINT 'ERRO NO AJUSTE INTERFACE'    
+    
+     SET @DscRetorno = '[ERR] Ajuste Inteface: ' + CAST(@CodRetorno AS varchar) + ' Desc: ' + @DscRetorno    
+    
+     RAISERROR (    
+     @DscRetorno,    
+     16, -- Severity.                      
+     1 -- State.                      
+     );    
+    END    
+    
+    --TIAGO      
+    IF @TipCotac = '4'    
+     OR @TipCotac = '5'    
+    BEGIN    
+     SET @TipCotacTriagem = @TipCotac    
+    END    
+    ELSE    
+    BEGIN    
+     SET @TipCotacTriagem = 1    
+    END    
+    
+    DELETE FROM ged.dbo.tab_triagem    
+    WHERE num_pi = @num_pi    
+    
+    INSERT INTO ged.dbo.tab_triagem (num_pi,    
+    dat_entrada,    
+    cod_ramo,    
+    tip_cotac,    
+    triador,    
+    digitador,    
+    dat_cadastro,    
+    dat_alteracao,    
+    qtde_itens,    
+    num_siscota,    
+    num_prop_syas,    
+    num_dv,    
+    hora_cadastro,    
+    ind_enviaga,    
+    ind_viginf,    
+    dat_rec_cia,    
+    ind_primeiraexec,    
+    nom_seg,    
+    cpfcnpj,    
+    val_premioliq)    
+     VALUES (@num_pi, CONVERT(varchar, GETDATE(), 112), @CodRamo, @TipCotacTriagem, 0, 0, CONVERT(varchar, GETDATE(), 112), 0, 0,   
+  @Nosso_numero, @Nosso_numero, @NumDV, REPLACE(CONVERT(varchar, GETDATE(), 108), ':', ''), 0, 0, @DatRecCia, 0, @NomSegurado, @CNPJ_CPF, @Val_Pr_Liquido)    
+    
+    SELECT    
+     @QtdFluxo = COUNT(*)    
+    FROM    
+    ged.dbo.tab_ctrl_fluxo    
+    WHERE num_pi = @Num_PI    
+    
+    IF @QtdFluxo = 0    
+    BEGIN    
+     INSERT INTO ged.dbo.tab_ctrl_fluxo (num_pi,    
+     status_fluxo,    
+     flowid,    
+     cod_membro,    
+     justificativa)    
+      VALUES (@Num_PI, 0, '', 0, '')    
+    END    
+    --TIAGO     
+    ---necessário criar as pendências                            
+    IF (    
+     @CodRamo = 112    
+     OR @CodRamo = 113    
+     OR @CodRamo = 114    
+     OR (    
+     @CodRamo = 710    
+     AND @Cod_user <> 'TRISIE'    
+     )    
+     )    
+    BEGIN    
+     SET @CorpoEmail = ''    
+    
+     --Cópia da congênere                            
+     IF @ApolAnterior <> 0    
+      EXEC ged.dbo.Proc_ver_grupo_corr_retorno @Corretor1,    
+                           @Corretor2,    
+                           @Corretor3,    
+                           @Corretor1Ant,    
+                           @Corretor2Ant,    
+                           @Corretor3Ant,    
+                           @Igual = @Retorno    
+    
+     SET @IndPendencia = 0    
+    
+     IF @Retorno = 1    
+     BEGIN    
+      SET @CorpoEmail = @CorpoEmail + '- Carta de transferência de corretagem(*);' + CHAR(13)    
+    
+      INSERT INTO ged.dbo.tab_prop_mensagem (num_pi,    
+      item_pi,    
+      cod_mensagem,    
+      cod_tip_mensagem,    
+      motivo,    
+      dat_digit,    
+      dat_liber,    
+      hor_liber)    
+       VALUES (@num_pi, 1, 8108, 2, '', CONVERT(varchar, GETDATE(), 112), 0, 0)    
+    
+      SET @IndPendencia = 1    
+     END    
+    
+     /* - Solicitação do Produto - 24/11/2014 - Simony                          
+       if @TipEmissao = 101                            
+                           begin                            
+                                set @CorpoEmail = @CorpoEmail + '- Cópia da congênere;' + char(13)                            
+                               
+                                insert into ged.dbo.tab_prop_mensagem (num_pi, item_pi, cod_mensagem, cod_tip_mensagem, motivo, dat_digit, dat_liber, hor_liber)                            
+                                values(@num_pi, 1, 8107, 2, '', convert(varchar,getdate(),112), 0, 0)                            
+                                --set @IndPendencia = 1                            
+                                           
+                           end                                     
+                          
+               */    
+     /*                                              
+                           if @CodRamo = 112                            
+                           begin                            
+                                if exists(Select * from ramosdiversos..ftp_tab_ped_cobert where nosso_numero = @Nosso_Numero and cod_cobert in (94,118))                            
+                                      set @Bens = 1                                      
+                end                            
+                                                       
+                           PRINT @CodRamo                            
+                                                     
+                           if @CodRamo = 113                            
+                 begin                            
+             if exists(Select * from ramosdiversos..ftp_tab_ped_cobert where nosso_numero = @Nosso_Numero and cod_cobert in (22,29,27,31,30))                            
+                                      set @Bens = 1                                            
+                           end                            
+               */    
+     PRINT 'bens'    
+     PRINT @Bens    
+    
+     --Relação de bens                            
+     IF @Bens = 1    
+     BEGIN    
+      SET @CorpoEmail = @CorpoEmail + '- Relação de bens(*);' + CHAR(13)    
+    
+      INSERT INTO ged.dbo.tab_prop_mensagem (num_pi,    
+      item_pi,    
+      cod_mensagem,    
+      cod_tip_mensagem,    
+      motivo,    
+      dat_digit,    
+      dat_liber,    
+      hor_liber)    
+       VALUES (@num_pi, 1, 8106, 2, '', CONVERT(varchar, GETDATE(), 112), 0, 0)    
+    
+      SET @IndPendencia = 1    
+     END    
+    
+     -- Retirada mensagem de Autorização de Debito - CR97447                        
+     --Autorização de débito                      
+     --if @ContaDeb <> 0                            
+     --begin                            
+     --     set @CorpoEmail = @CorpoEmail + '- Autorização de débito;' + char(13)                                          
+     --     insert into ged.dbo.tab_prop_mensagem (num_pi, item_pi, cod_mensagem, cod_tip_mensagem, motivo, dat_digit, dat_liber, hor_liber)                            
+     --     values(@num_pi, 1, 8100, 2, '', convert(varchar,getdate(),112), convert(varchar,getdate(),112), 1900)                            
+     --end                            
+     /*                                
+         IF (@TipCotac = '5') BEGIN                            
+         set @CorpoEmail = @CorpoEmail + '- Nota fiscal do(s) equipamento(s);' + char(13)                            
+         insert into ged.dbo.tab_prop_mensagem (num_pi, item_pi, cod_mensagem, cod_tip_mensagem, motivo, dat_digit, dat_liber, hor_liber)                            
+         values(@num_pi, 1, 8116, 2, '', convert(varchar,getdate(),112), 0, 0)                   
+         set @IndPendencia = 1                                 
+         END                         
+         */    
+     /* - Solicitação do Produto - 16/01/2015 - Simony  -                         
+                                     if (not (@TipCotac = '4')) BEGIN                            
+                    set @CorpoEmail = @CorpoEmail + '- Proposta assinada pelo segurado/corretor' + char(13)                                        
+                    insert into ged.dbo.tab_prop_mensagem (num_pi, item_pi, cod_mensagem, cod_tip_mensagem, motivo, dat_digit, dat_liber, hor_liber)                            
+         values(@num_pi, 1, 8109, 2, '', convert(varchar,getdate(),112), convert(varchar,getdate(),112), 1900)                                               
+                END                            
+                       */    
+     DELETE FROM ged.dbo.tbp_histemail    
+     WHERE num_pi = @num_pi    
+    
+     SET @Email1 = ''    
+     SET @Email2 = ''    
+     SET @Email3 = ''    
+     SET @EmailAux = ''    
+    
+     IF @CorpoEmail <> ''    
+     BEGIN    
+      IF @IndPendencia = 1    
+       UPDATE ged.dbo.tab_triagem    
+       SET ind_primeiraexec = 1    
+       WHERE num_pi = @num_pi    
+    
+      DECLARE cur_email1 CURSOR FOR    
+      SELECT DISTINCT    
+       email    
+      FROM ged.dbo.tab_corr_email    
+      WHERE cod_corr = @Corretor1    
+      AND num_dept = 9700;    
+    
+      OPEN cur_email1;    
+    
+      FETCH NEXT    
+      FROM cur_email1    
+      INTO @EmailAux    
+    
+      WHILE @@FETCH_STATUS = 0    
+      BEGIN    
+       IF (LEN(@Email1) + LEN(RTRIM(@EmailAux))) < 599    
+       BEGIN    
+        SET @Email1 = @Email1 + RTRIM(@EmailAux) + ';'    
+       END    
+    
+       FETCH NEXT    
+       FROM cur_email1    
+       INTO @EmailAux;    
+      END    
+    
+      CLOSE cur_email1;    
+    
+      -- Tira o cursor da memória                            
+      DEALLOCATE cur_email1;    
+    
+      IF @Email1 = ''    
+      BEGIN    
+       SELECT    
+        @Email1 = email_corretor    
+       FROM    
+       ged.dbo.tbs_corretor    
+       WHERE cod_corretor = @Corretor1    
+    
+       SET @Email1 = @Email1 + ';'    
+      END    
+    
+      PRINT 'email 1'    
+      PRINT @Email1    
+    
+      IF @Corretor2 <> 0    
+      BEGIN    
+       DECLARE cur_email2 CURSOR FOR    
+       SELECT DISTINCT    
+        email    
+       FROM ged.dbo.tab_corr_email    
+       WHERE cod_corr = @Corretor2    
+       AND num_dept = 9700;    
+    
+       OPEN cur_email2;    
+    
+       FETCH NEXT    
+       FROM cur_email2    
+       INTO @EmailAux    
+    
+       SET @Email2 = ''    
+    
+       WHILE @@FETCH_STATUS = 0    
+       BEGIN    
+        IF (LEN(@Email1) + LEN(RTRIM(@EmailAux))) < 599    
+         SET @Email1 = @Email1 + RTRIM(@EmailAux) + ';'    
+    
+        FETCH NEXT    
+        FROM cur_email2    
+        INTO @EmailAux;    
+       END    
+    
+       CLOSE cur_email2;    
+    
+       -- Tira o cursor da memória                            
+       DEALLOCATE cur_email2;    
+    
+       IF @Email2 = ''    
+       BEGIN    
+        SELECT    
+         @Email2 = email_corretor    
+        FROM    
+        ged.dbo.tbs_corretor    
+        WHERE cod_corretor = @Corretor2    
+    
+        SET @Email1 = @Email1 + RTRIM(@Email2) + ';'    
+       END    
+      END    
+    
+      PRINT 'email 2'    
+      PRINT @Email2    
+    
+      IF @Corretor3 <> 0    
+      BEGIN    
+       DECLARE cur_email3 CURSOR FOR    
+       SELECT DISTINCT    
+        email    
+       FROM ged.dbo.tab_corr_email    
+       WHERE cod_corr = @Corretor3    
+       AND num_dept = 9700;    
+    
+       OPEN cur_email3;    
+    
+       FETCH NEXT    
+       FROM cur_email3    
+       INTO @EmailAux    
+    
+       SET @Email2 = ''    
+    
+       WHILE @@FETCH_STATUS = 0    
+       BEGIN    
+        IF (LEN(@Email1) + LEN(RTRIM(@EmailAux))) < 599    
+         SET @Email1 = @Email1 + RTRIM(@EmailAux) + ';'    
+    
+        FETCH NEXT    
+        FROM cur_email3    
+        INTO @EmailAux;    
+       END    
+    
+       CLOSE cur_email3;    
+    
+       -- Tira o cursor da memória                            
+       DEALLOCATE cur_email3;    
+    
+       IF @Email3 = ''    
+       BEGIN    
+        SELECT    
+         @Email3 = email_corretor    
+        FROM    
+        ged.dbo.tbs_corretor    
+        WHERE cod_corretor = @Corretor3    
+    
+        SET @Email1 = @Email1 + RTRIM(@Email3) + ';'    
+       END    
+      END    
+    
+      PRINT 'email 3'    
+      PRINT @Email3    
+    
+      IF @IndPendencia = 1    
+      BEGIN    
+       INSERT INTO ged.dbo.tab_stat_emis (num_pi,    
+       status_acao,    
+       status_resposta,    
+       status_agente,    
+       data_acao)    
+        VALUES (@Num_PI, 5, 0, 0, CONVERT(varchar, GETDATE(), 112))    
+      END    
+    
+      IF @IndPendencia = 1    
+      BEGIN    
+       INSERT INTO ged.dbo.tbp_histemail (num_pi,    
+       hist_email,    
+       dat_geracao,    
+       nom_membro,    
+       end_email,    
+       status_acao,    
+       status_envio,    
+       dat_ult_alerta,    
+       pendencia)    
+        VALUES (@Num_PI, @CorpoEmail, GETDATE(), 'AGENTE', @Email1, 40, 0, NULL, 2)    
+      END    
+      ELSE    
+      BEGIN    
+       INSERT INTO ged.dbo.tbp_histemail (num_pi,    
+       hist_email,    
+       dat_geracao,    
+       nom_membro,    
+       end_email,    
+       status_acao,    
+       status_envio,    
+       dat_ult_alerta,    
+       pendencia)    
+        VALUES (@Num_PI, @CorpoEmail, GETDATE(), 'AUTOMATICO', @Email1, 40, 0, NULL, 2)    
+      END    
+     END --if @CorpoEmail <> ''                            
+    END --IF @Bens                            
+    -- Atualiza Serasa              
+    -- Dispensar Serasa do Imobiliario                            
+    
+    --8000043088, Restrições Financeiras SERASA    
+    --AND @TipEmissao <> 200 -- DIFERENTE DE RENOVAÇÃO    
+    --AND @CodPlano NOT BETWEEN 5061 AND 5064 -- PLANOS ARCO INEXISTENTES.    
+    --OR @CodRamo = 114 -- CONDOMINIO NÃO CONSULTA SERASA.    
+    
+    DECLARE @RETORNOSERASA int    
+    EXEC [dbo].[VERIFICARCONSULTASERASA] @Nosso_Numero,    
+                       @NUM_PI,    
+                       @RETORNOSERASA OUTPUT    
+    
+ --2021-04-27: Ajuste Serasa ramo 113  
+ --2021-09-30: Ajuste Serasa ramo 114  
+ IF @CodRamo = 113 or @CodRamo = 114  
+ BEGIN  
+  SET @RETORNOSERASA = 0   
+ END  
+    
+    IF @RETORNOSERASA = 1    
+    BEGIN    
+   PRINT 'passou serasa'    
+    
+   DELETE FROM [P0044800].[dbo].[tab_consdadosexternos]    
+   WHERE num_pi = @num_pi    
+    AND tiposistema = 1    
+    
+   IF NOT EXISTS (SELECT    
+         *    
+        FROM ftp_tab_ped_liberacao_serasa    
+        WHERE nosso_numero = @Nosso_Numero)    
+   BEGIN    
+     INSERT INTO [P0044800].[dbo].[tab_consdadosexternos] ([num_pi],    
+     [cod_ramo],    
+     [tiposistema],    
+     [tip_chave1],    
+     [chave1],    
+     [tip_chave2],    
+     [chave2],    
+     [tip_chave3],    
+     [chave3],    
+     [tip_chave4],    
+     [chave4],    
+     [dat_processamento],    
+     [hor_processamento],    
+     [num_item])    
+      VALUES (@num_pi, @CodRamo, 1, 2, CAST(@CNPJ_CPF AS varchar), 0, '0', 0, '0', 0, '0', 0, 0, 0)    
+   END    
+    END    
+    
+  --2021-07-12: Desativação do Boa Vista  
+    -- Atualiza BoaVista                            
+   -- PRINT 'passou BoaVista'    
+    
+   -- DELETE FROM [P0044800].[dbo].[tab_consdadosexternos]    
+   -- WHERE num_pi = @num_pi    
+   --  AND (    
+   --  tiposistema = 3    
+   --  OR tiposistema = 4    
+   --  )    
+    
+   -- INSERT INTO [P0044800].[dbo].[tab_consdadosexternos] ([num_pi],    
+   -- [cod_ramo],    
+   -- [tiposistema],    
+   -- [tip_chave1],    
+   -- [chave1],    
+   -- [tip_chave2],    
+   -- [chave2],    
+   -- [tip_chave3],    
+   -- [chave3],    
+   -- [tip_chave4],    
+   -- [chave4],    
+   -- [dat_processamento],    
+   -- [hor_processamento],    
+   -- [num_item])    
+   --  VALUES (@num_pi, @CodRamo, 3, 2, CAST(@CNPJ_CPF AS varchar), 0, '0', 0, '0', 0, '0', 0, 0, 0)    
+   END --if @QtdFluxo = 0                            
+   --------------------------------------------------------------------------------------------------------------------------                         
+    
+   PRINT 'passou Tab_ConsDadosExternos'    
+   PRINT 'Inicio do tratamento do Agregado'    
+    
+   SET @Step = 3    
+    
+   IF EXISTS (SELECT    
+     *    
+    FROM [RamosDiversos].[dbo].[ftp_tab_ped_agregados]    
+    WHERE num_pi = @num_pi)    
+   BEGIN    
+    SELECT    
+     @NomSegurado = [nom_segurado],    
+     @CNPJ_CPF_AGREGADO = [num_cgc_cpf],    
+     @CodRamo_AGREGADO = [cod_ramo],    
+     @EndTipLogradouro = [cod_tip_logr],    
+     @EndNomLogradouro = [nom_logr],    
+     @EndComplemento = [dsc_compl_logr],    
+     @EndNumLogradouro = [num_logr],    
+     @EndBairro = [nom_bairro],    
+     @EndCidade = [nom_cid],    
+     @SigUF = [sig_uf],    
+     @NumCEP = [num_cep],    
+     @DDDTelefone = [num_ddd_fone],    
+     @EndTelefoneF = [num_fone],    
+     @DAT_NASC = [dat_nasc],    
+     @TipPessoa = [tip_pessoa],    
+     @CodRamoAtiv = [cod_ramo_ativ],    
+     @TipDocumento = [cod_doc],    
+     @NumDocumento = [num_doc],    
+     @OrgaoExpedidor = [org_exp],    
+     @DataEmissao = [dat_emis_doc],    
+     @Profissao = ' ',    
+     @Sexo = [sexo],    
+     @ValRenda = [renda_fatura]    
+    FROM    
+    [RamosDiversos].[dbo].[ftp_tab_ped_agregados]    
+    WHERE num_pi = @num_pi    
+    
+    SET @Step = 4    
+    
+    IF @TipPessoa = 1    
+    BEGIN    
+     IF @CodRamoAtiv = 1    
+      SET @LetraRamoAtiv = 'A'    
+    
+     IF @CodRamoAtiv = 2    
+      SET @LetraRamoAtiv = 'B'    
+    
+     IF @CodRamoAtiv = 3    
+      SET @LetraRamoAtiv = 'C'    
+    
+     IF @CodRamoAtiv = 4    
+      SET @LetraRamoAtiv = 'D'    
+    
+     IF @CodRamoAtiv = 5    
+      SET @LetraRamoAtiv = 'E'    
+    
+     IF @CodRamoAtiv = 6    
+      SET @LetraRamoAtiv = 'F'    
+    
+     IF @CodRamoAtiv = 7    
+      SET @LetraRamoAtiv = 'G'    
+    
+     IF @CodRamoAtiv = 8    
+      SET @LetraRamoAtiv = 'H'    
+    
+     IF @CodRamoAtiv = 9    
+      SET @LetraRamoAtiv = 'I'    
+    
+     IF @CodRamoAtiv = 10    
+      SET @LetraRamoAtiv = 'J'    
+    
+     IF @CodRamoAtiv = 11    
+      SET @LetraRamoAtiv = 'K'    
+    
+     IF @CodRamoAtiv = 12    
+      SET @LetraRamoAtiv = 'L'    
+    
+     IF @CodRamoAtiv = 13    
+      SET @LetraRamoAtiv = 'M'    
+    
+     IF @CodRamoAtiv = 14    
+      SET @LetraRamoAtiv = 'N'    
+    
+     IF @CodRamoAtiv = 15    
+      SET @LetraRamoAtiv = 'O'    
+    
+     IF @CodRamoAtiv = 16    
+      SET @LetraRamoAtiv = 'P'    
+    
+     IF @CodRamoAtiv = 17    
+      SET @LetraRamoAtiv = 'Q'    
+    
+     IF @CodRamoAtiv = 18    
+      SET @LetraRamoAtiv = 'R'    
+    
+     IF @CodRamoAtiv = 19    
+      SET @LetraRamoAtiv = 'S'    
+    
+     IF @CodRamoAtiv = 20    
+      SET @LetraRamoAtiv = 'T'    
+    
+     IF @CodRamoAtiv = 21    
+      SET @LetraRamoAtiv = 'U'    
+    
+     IF @CodRamoAtiv = 22    
+      SET @LetraRamoAtiv = 'V'    
+    
+     IF @CodRamoAtiv = 23    
+      SET @LetraRamoAtiv = 'W'    
+    
+     IF @CodRamoAtiv = 24    
+      SET @LetraRamoAtiv = 'X'    
+    
+     IF @CodRamoAtiv = 25    
+      SET @LetraRamoAtiv = 'Y'    
+    
+     IF @CodRamoAtiv = 26    
+      SET @LetraRamoAtiv = 'Z'    
+    END    
+    
+    -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD Tab_ConsDadosExternos INICIO                      
+    DELETE FROM [P0044800].[dbo].[tab_consdadosexternos]    
+    WHERE num_pi = @num_pi    
+     AND tiposistema = 3    
+     AND chave1 = @CNPJ_CPF_AGREGADO    
+    
+    SET @Step = 5    
+    
+    INSERT INTO [P0044800].[dbo].[tab_consdadosexternos] ([num_pi],    
+    [cod_ramo],    
+    [tiposistema],    
+    [tip_chave1],    
+    [chave1],    
+    [tip_chave2],    
+    [chave2],    
+    [tip_chave3],    
+    [chave3],    
+    [tip_chave4],    
+    [chave4],    
+    [dat_processamento],    
+    [hor_processamento],    
+    [num_item])    
+     VALUES (@num_pi, @CodRamo_AGREGADO, 3, 2, CAST(@CNPJ_CPF_AGREGADO AS varchar), 0, '0', 0, '0', 0, '0', 0, 0, 0)    
+    
+    SET @Step = 6    
+    
+    -- FIM                      
+    PRINT 'passou Tab_ConsDadosExternos do Agregado'    
+    
+    IF @CodRetorno <> 0    
+    BEGIN    
+     PRINT 'ERRO NO Tab_ConsDadosExternos do Agregado'    
+    
+     SET @DscRetorno = '[ERR] Tab_ConsDadosExternos do Agregado: ' + @CodRetorno + ' Desc: ' + @DscRetorno    
+    
+     RAISERROR (    
+     @DscRetorno,    
+     16, -- Severity.                      
+     1 -- State.        
+     );    
+    END    
+    
+    -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD TAB_CONTATOS Agregado INICIO                      
+    IF NOT EXISTS (SELECT    
+      *    
+     FROM [P0044800].[DBO].tab_contatos TEL    
+     WHERE TEL.num_cgc_cpf = @CNPJ_CPF_AGREGADO)    
+    BEGIN    
+     INSERT INTO [P0044800].[DBO].tab_contatos (num_cgc_cpf,    
+     tipo_fone,    
+     num_ddd_fone,    
+     num_fone,    
+     num_ramal,    
+     dsc_obs,    
+     num_pi,    
+     cod_fone_principal,    
+     dt_alteracao)    
+      SELECT    
+       @CNPJ_CPF_AGREGADO,    
+       [tipo_fone],    
+       [num_ddd_fone],    
+       [num_fone],    
+       [num_ramal],    
+       ' ',    
+       [num_pi],    
+       1,    
+       CONVERT(varchar, GETDATE(), 112)    
+      FROM    
+      [RamosDiversos].[dbo].[tab_ped_agregados] TEL    
+      WHERE TEL.num_pi = @num_pi    
+    
+     SET @Step = 7    
+    END    
+    ELSE    
+    BEGIN    
+     UPDATE [P0044800].[dbo].[tab_contatos]    
+     SET [num_cgc_cpf] = @CNPJ_CPF_AGREGADO,    
+       [tipo_fone] = [tipo_fone],    
+       [num_ddd_fone] = @DDDTelefone,    
+       [num_fone] = @EndTelefoneF,    
+       [num_ramal] = 0,    
+       [dsc_obs] = ' ',    
+       [num_pi] = @num_pi,    
+       [cod_fone_principal] = 0,    
+       [dt_alteracao] = CONVERT(varchar, GETDATE(), 112)    
+     WHERE num_cgc_cpf = @CNPJ_CPF_AGREGADO    
+    
+     SET @Step = 8    
+    END    
+    
+    -- FIM                      
+    PRINT 'passou TAB_CONTATOS do Agregado'    
+    -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD [T0044800] INICIO                      
+    PRINT 'CNPJ_CPF_AGREGADO '    
+    PRINT @CNPJ_CPF_AGREGADO    
+    
+    IF EXISTS (SELECT    
+      *    
+     FROM [P0044800].[dbo].[t0044800]    
+     WHERE num_cgc_cpf = @CNPJ_CPF_AGREGADO)    
+    BEGIN    
+     UPDATE [P0044800].[dbo].[t0044800]    
+     SET [tip_pessoa] = @TIP_AGREGADO,    
+       [cod_tip_logr] = @EndTipLogradouro,    
+       [nom_logr] = @EndNomLogradouro,    
+       [dsc_compl_logr] = @EndComplemento,    
+       [nom_bairro] = @EndBairro,    
+       [nom_cid] = @EndCidade,    
+       [sig_uf] = @SigUF,    
+       [num_cep] = @NumCEP,    
+       [num_ddd_fone] = @DDDTelefone,    
+       [num_fone] = @EndTelefoneF,    
+       [sexo] = @Sexo,    
+       [dat_nasc] = @DAT_NASC,    
+       [tip_docum] = @TipDocumento,    
+       [num_docum] = @NumDocumento,    
+       [nom_org_exped] = @OrgaoExpedidor,    
+       [dat_exped] = @DataEmissao,    
+       [nom_profissao] = @Profissao,    
+       [ramo_ativ_empr] = @LetraRamoAtiv,    
+       [cod_identificador] = @codsegurado,    
+       [dat_alteracao] = CONVERT(varchar, GETDATE(), 112),    
+       [cod_user] = 'TRANSM',    
+       [subtip_pessoa] = @TipPessoa,    
+       [rendafatu] = @ValRenda    
+     WHERE [num_cgc_cpf] = @CNPJ_CPF_AGREGADO    
+    
+     SET @Step = 9    
+    END    
+    ELSE    
+    BEGIN    
+     INSERT INTO [P0044800].[dbo].[t0044800] ([nome_razao],    
+     [nom_abrev],    
+     [nom_contato],    
+     [tip_pessoa],    
+     [num_cgc_cpf],    
+     [cod_tip_logr],    
+     [nom_logr],    
+     [dsc_compl_logr],    
+     [nom_bairro],    
+     [nom_cid],    
+     [sig_uf],    
+     [num_cep],    
+     [num_ddd_fone],    
+     [num_fone],    
+     [num_ddd_fax],    
+     [num_fax],    
+     [dat_nasc],    
+     [sexo],    
+     [tip_docum],    
+     [num_docum],    
+     [nom_org_exped],    
+     [dat_exped],    
+     [email],    
+     [nom_profissao],    
+     [ramo_ativ_empr],    
+     [nome_contato],    
+     [cod_banco],    
+     [cod_agen],    
+     [num_cta_cor],    
+     [dig_cta_cor],    
+     [cod_identificador],    
+     [tip_corretor],    
+     [tip_segurado],    
+     [tip_estipulante],    
+     [tip_oficina],    
+     [tip_vistoriador],    
+     [tip_beneficiario],    
+     [tip_irregular],    
+     [dat_cadastro],    
+     [dat_alteracao],    
+     [cod_user],    
+     [doc_anexos],    
+     [nom_loctrab],    
+     [subtip_pessoa],    
+     [altera_nome],    
+     [num_pi],    
+     [divergencia],    
+     [rendafatu])    
+      VALUES (@NOMSEGURADO, '', '', @TIP_AGREGADO, @CNPJ_CPF_AGREGADO, @EndTipLogradouro, @EndNomLogradouro, @EndComplemento, @EndBairro, @EndCidade, @SigUF, @NumCEP, 0, RIGHT(@EndTelefoneF, 8), NULL, NULL,   
+   @DAT_NASC, @Sexo, @TipDocumento, @NumDocumento, @OrgaoExpedidor, @DataEmissao, NULL, @Profissao, @LetraRamoAtiv, NULL, NULL, NULL, NULL, NULL,   
+   @CODSEGURADO, NULL, NULL, NULL, NULL, NULL, NULL, NULL, CONVERT(varchar, GETDATE(), 112), 0, '', NULL, NULL, @TipPessoa, 0, NULL, NULL, @ValRenda)    
+    
+     SET @Step = 10    
+    END    
+    
+    -- FIM                      
+    PRINT 'passou T0044800 do Agregado'    
+    
+    -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD T0044807 Agregados INICIO                      
+    DELETE FROM [P0044800].[dbo].[t0044807]    
+    WHERE num_pi = @num_pi    
+     AND num_cgc_cpf = @CNPJ_CPF_AGREGADO    
+    
+    SET @Step = 11    
+    
+    INSERT INTO [P0044800].[dbo].[t0044807] ([num_pi],    
+    [num_cgc_cpf],    
+    [dat_emis],    
+    [dat_ter_vig],    
+    [num_apol],    
+    [num_endo],    
+    [cod_tip_logr],    
+    [nom_logr],    
+    [dsc_compl_logr],    
+    [nom_bairro],    
+    [nom_cid],    
+    [sig_uf],    
+    [num_cep],    
+    [num_ddd_fone],    
+    [num_fone],    
+    [tip_agregado],    
+    [dat_cadastro],    
+    [dat_alteracao],    
+    [cod_user],    
+    [cod_tip_logr_resid],    
+    [nom_logr_resid],    
+    [num_logr_resid],    
+    [dsc_compl_logr_resid],    
+    [nom_bairro_resid],    
+    [nom_cid_resid],    
+    [sig_uf_resid],    
+    [num_cep_resid])    
+     VALUES (@Num_PI, @CNPJ_CPF_AGREGADO, 0, @DatTerVig, 0, 0, @CobTipLogradouro, @CobNomLogradouro, @CobComplemento, @CobBairro, @CobCidade, @CobSigUF, @CobNumCEP, 0, @Cob_Telefones, @TIP_AGREGADO,    
+     CONVERT(varchar, GETDATE(), 112), CONVERT(varchar, GETDATE(), 112), 'TRANSM', @CobTipLogradouro, @CobNomLogradouro, 0, @CobComplemento, @CobBairro, @CobCidade, @CobSigUF, @CobNumCEP)    
+    
+    SET @Step = 12    
+    
+    -- FIM                      
+    PRINT 'passou P0044800 do Agregado'    
+    
+    --   exec P0044800.dbo.sp_InterfaceCadastro  @CNPJ_CPF_AGREGADO, @NUM_PI, @EndNumLogradouro , @NUM_LOGR_SEGURADO,  @EndComplemento,     @DSC_COMPL_SEGURADO, @CodRamo_AGREGADO ,               
+    --   @CodPlano, @Cod_RamoSec, @NumApolEndosso ,  @CodRetorno   output, @DscRetorno output                      
+    EXEC p0044800.dbo.Sp_interfacecadastro @CNPJ_CPF_AGREGADO,    
+              @NUM_PI,    
+              @NUM_LOGR_COBRANCA,    
+              @EndNumLogradouro,    
+              @EndComplemento,    
+              @DSC_COMPL_SEGURADO,    
+              @CodRamo_AGREGADO,    
+              @CodPlano,    
+              @Cod_RamoSec,    
+              @NumApolEndosso,    
+              @CodRetorno OUTPUT,    
+              @DscRetorno OUTPUT    
+    
+    SET @Step = 13    
+    
+    PRINT 'passou P0044800.dbo.sp_InterfaceCadastro do Agregado'    
+    
+    IF @CodRetorno <> 0    
+    BEGIN    
+     PRINT 'ERRO NO AJUSTE INTERFACE 2'    
+    
+     SET @DscRetorno = '[ERR] Ajuste Inteface 2 : ' + @CodRetorno + ' Desc: ' + @DscRetorno    
+    
+     RAISERROR (    
+     @DscRetorno,    
+     16, -- Severity.                      
+     1 -- State.                      
+     );    
+    END    
+   END    
+    
+   --IF EXISTS (SELECT * FROM [RamosDiversos].[dbo].[TAB_PED_AGREGADOS] Where NUM_PI = @num_pi)                      
+   PRINT 'Fim do tratamento do Agregado'    
+   PRINT @CodPlano    
+   PRINT @Novo_NosNumero    
+    
+   IF @CodPlano = 20    
+   BEGIN    
+    --AQUI                      
+    /* Apenas Imobiliario */    
+    -- Verificar se as inspeções dos locais de risco existem, e se não existir, zerar o número da inspeção.              
+    UPDATE TPL    
+    SET NUM_INSP = 0    
+    FROM tab_ped_loc TPL    
+    LEFT JOIN inspecao..tab_insp TI    
+     ON TI.num_insp = TPL.num_insp    
+     AND TI.num_cep = TPL.num_cep_risco    
+    WHERE TPL.nosso_numero = @Novo_NosNumero    
+    AND TPL.num_insp <> 0    
+    
+    UPDATE TPI    
+    SET NUM_INSP = 0    
+    FROM tab_ped_insp TPI    
+    INNER JOIN tab_ped_loc TPL    
+     ON TPI.nosso_numero = TPL.nosso_numero         AND TPI.cod_ramo = TPL.cod_ramo    
+     AND TPI.num_item = TPL.num_item    
+    LEFT JOIN inspecao..tab_insp TI    
+     ON TI.num_insp = TPL.num_insp    
+     AND TI.num_cep = TPL.num_cep_risco    
+    WHERE TPL.nosso_numero = @Novo_NosNumero    
+    AND TPI.num_insp <> 0    
+    
+    UPDATE TPLO    
+    SET TPLO.num_insp =    
+         CASE    
+         WHEN (    
+           TINS.num_cep <> TPLO.num_cep_risco OR    
+           TINS.num_logr = TPIN.num_insp    
+           --Verificar numero                      
+           ) THEN 0    
+         ELSE TINS.num_insp    
+         END    
+    FROM ramosdiversos..tab_ped_loc TPLO    
+    JOIN ramosdiversos..tab_ped TPED    
+     ON TPLO.nosso_numero = TPED.nosso_numero    
+    JOIN ramosdiversos..tab_ped_insp TPIN    
+     ON TPLO.nosso_numero = TPIN.nosso_numero    
+     AND TPLO.num_item = TPIN.num_item    
+    JOIN inspecao..tab_insp TINS    
+     ON TINS.num_insp <> 0    
+     AND TINS.num_insp = TPLO.num_insp    
+    WHERE TINS.num_insp <> 0    
+    AND TPLO.insp_obr = 1    
+    AND TPED.cod_estip = 20    
+    AND TPLO.nosso_numero = @Novo_NosNumero;    
+    
+    -------------------------------------------------    
+    -- 2017-06-20: remover multi dr result - Inicio    
+    -------------------------------------------------    
+    /* Verifica se existe inspeção  */    
+    /*    
+     WITH tins (      
+      nom_logr,      
+      num_logr,      
+      dsc_compl,      
+      num_cep,      
+      dsc_cid,      
+      dsc_bairro,      
+      uf,      
+      dat_inspec      
+      )      
+     AS (      
+      SELECT nom_logr,      
+       num_logr,      
+       dsc_compl,      
+       num_cep,      
+       dsc_cid,      
+       dsc_bairro,      
+       uf,      
+       CASE       
+        WHEN Isdate(dat_inspec) = 1      
+         THEN CONVERT(DATETIME, Cast(dat_inspec AS VARCHAR(10)), 112)      
+        ELSE NULL      
+        END dat_inspec      
+      FROM inspecao..tab_insp TINS      
+      WHERE Isdate(Cast(dat_inspec AS VARCHAR(10))) = 1      
+      )      
+     SELECT *      
+     FROM tins      
+     JOIN ramosdiversos..tab_trans_insp TTIN ON tins.num_cep = TTIN.num_cep_risco      
+      AND tins.num_logr = TTIN.num_insp      
+      AND tins.dsc_compl = TTIN.dsc_compl_risco      
+      AND tins.nom_logr = TTIN.nom_logr_risco      
+      AND tins.num_cep = TTIN.num_cep_risco      
+      AND tins.dsc_cid = TTIN.nom_cid_risco      
+      AND tins.dsc_bairro = TTIN.nom_bairro_risco      
+      AND tins.uf = TTIN.sig_uf_risco      
+      AND Datediff(day, dat_inspec, Getdate()) <= (365 * 5)      
+      AND TTIN.nosso_numero = @Novo_NosNumero      
+        
+     IF @@ROWCOUNT > 0      
+     BEGIN      
+      UPDATE ramosdiversos..tab_ped_loc      
+      SET insp_obr = 0      
+      WHERE num_insp = 0      
+       AND insp_obr = 1      
+       AND nosso_numero = @Novo_NosNumero      
+     END      
+     */    
+    
+    IF EXISTS (SELECT TOP 1    
+      *    
+     FROM inspecao..tab_insp tins    
+     JOIN ramosdiversos..tab_trans_insp TTIN    
+      ON tins.num_cep = TTIN.num_cep_risco    
+      AND tins.num_logr = TTIN.num_insp    
+      AND tins.dsc_compl = TTIN.dsc_compl_risco    
+      AND tins.nom_logr = TTIN.nom_logr_risco    
+      AND tins.num_cep = TTIN.num_cep_risco    
+      AND tins.dsc_cid = TTIN.nom_cid_risco    
+      AND tins.dsc_bairro = TTIN.nom_bairro_risco    
+      AND tins.uf = TTIN.sig_uf_risco    
+      AND TTIN.nosso_numero = @Novo_NosNumero    
+     WHERE ISDATE(dat_inspec) = 1    
+     AND DATEDIFF(DAY, CONVERT(datetime, CAST(dat_inspec AS varchar(10)), 112), GETDATE()) <= (365 * 5))    
+    BEGIN    
+     UPDATE ramosdiversos..tab_ped_loc    
+     SET insp_obr = 0    
+     WHERE num_insp = 0    
+     AND insp_obr = 1    
+     AND nosso_numero = @Novo_NosNumero    
+    END    
+   -------------------------------------------------    
+   -- 2017-06-20: remover multi dr result - FIM    
+   -------------------------------------------------    
+    
+   BEGIN    
+    INSERT INTO tab_trans_insp (nosso_numero,    
+    num_ped,    
+    num_item,    
+    num_apol_ant,    
+    nom_segurado,    
+    num_tel,    
+    num_cgc_cpf,    
+    cod_ramo,    
+    cod_org,    
+    dat_ini_vig,    
+    dat_ter_vig,    
+    cod_tip_logr_risco,    
+    nom_logr_risco,    
+    dsc_compl_risco,    
+    nom_bairro_risco,    
+    nom_cid_risco,    
+    sig_uf_risco,    
+    num_cep_risco,    
+    num_risco,    
+    dat_trans,    
+    cod_iden_pessoa,    
+    cod_unid_prod,    
+    cod_prod,    
+    cod_corr,    
+    cod_cobert_01,    
+    cod_cobert_02,    
+    cod_cobert_03,    
+    cod_cobert_04,    
+    cod_cobert_05,    
+    cod_cobert_06,    
+    cod_cobert_07,    
+    cod_cobert_08,    
+    cod_cobert_09,    
+    cod_cobert_10,    
+    val_is_cobert_01,    
+    val_is_cobert_02,    
+    val_is_cobert_03,    
+    val_is_cobert_04,    
+    val_is_cobert_05,    
+    val_is_cobert_06,    
+    val_is_cobert_07,    
+    val_is_cobert_08,    
+    val_is_cobert_09,    
+    val_is_cobert_10,    
+    cod_clasf,    
+    cod_compl_clasf,    
+    pess_cont,    
+    cod_produto,    
+    flag_trans,    
+    num_cotac,    
+    num_insp,    
+    cod_status_i,    
+    dat_confirm,    
+    dat_final,    
+    dat_cancel)    
+     SELECT    
+      TLOC.nosso_numero,    
+      TLOC.num_ped,    
+      TLOC.num_item,    
+      TPED.num_apol_an AS NUM_APOL_ANT,    
+      TPED.nom_segurado,    
+      ISNULL(TPIN.num_tel, 0) NUM_TEL,    
+      TPED.num_cgc_cpf,    
+      TPED.cod_ramo,    
+      TPED.cod_org,    
+      TPED.dat_ini_vig,    
+      TPED.dat_ter_vig,    
+      TLOC.cod_tip_logr_risco,    
+      TLOC.nom_logr_risco,    
+      TLOC.dsc_compl_risco,    
+      TLOC.nom_bairro_risco,    
+      TLOC.nom_cid_risco,    
+      TLOC.sig_uf_risco,    
+      TLOC.num_cep_risco,    
+      ISNULL(TPIN.num_logr_risco, 0) NUM_RISCO,    
+      CONVERT(varchar(20), GETDATE(), 112) AS DAT_TRANS,    
+      ISNULL(TCEC.cod_iden_pessoa, 0) cod_iden_pessoa,    
+      TPED.cod_unid_prod,    
+      TPED.cod_prod,    
+      ISNULL(TCEC.cod_corr, 0) COD_CORR,    
+      ISNULL(TCEM.cod_origem, 0) COD_COBERT_01,    
+      0 AS COD_COBERT_02,    
+      0 AS COD_COBERT_03,    
+      0 AS COD_COBERT_04,    
+      0 AS COD_COBERT_05,    
+      0 AS COD_COBERT_06,    
+      0 AS COD_COBERT_07,    
+      0 AS COD_COBERT_08,    
+      0 AS COD_COBERT_09,    
+      0 AS COD_COBERT_10,    
+      ISNULL(TCEM.num_apol_mar, 0) VAL_IS_COBERT_01,    
+      0 AS VAL_IS_COBERT_02,    
+      0 AS VAL_IS_COBERT_03,    
+      0 AS VAL_IS_COBERT_04,    
+      0 AS VAL_IS_COBERT_05,    
+      0 AS VAL_IS_COBERT_06,    
+      0 AS VAL_IS_COBERT_07,    
+      0 AS VAL_IS_COBERT_08,    
+      0 AS VAL_IS_COBERT_09,    
+      0 AS VAL_IS_COBERT_10,    
+      TLOC.cod_clasf,    
+      TLOC.cod_compl_clasf,    
+      ISNULL(TPIN.pess_cont, '') PESS_CONT,    
+      TPED.cod_produto,    
+      '0' AS FLAG_TRANS,    
+      TCEC.num_cotac,    
+      0 AS Num_Insp,    
+      1 AS Cod_Status_I,    
+      CONVERT(varchar(20), GETDATE(), 112) AS Dat_Confirm,    
+      0 AS Dat_Final,    
+      0 AS Dat_Cancel    
+     FROM    
+     ramosdiversos..tab_ped_loc TLOC WITH (NOLOCK)    
+     INNER JOIN ramosdiversos..tab_ped TPED WITH (NOLOCK)    
+      ON TLOC.nosso_numero = TPED.nosso_numero    
+     LEFT JOIN ramosdiversos..tab_ped_insp TPIN WITH (NOLOCK)    
+      ON TPIN.nosso_numero = TLOC.nosso_numero    
+      AND TPIN.num_item = TLOC.num_item    
+      AND TPIN.num_ped = TLOC.num_ped    
+      AND LEN(LTRIM(RTRIM(TPIN.pess_cont))) > 0    
+     LEFT JOIN ramosdiversos..tab_ctrl_emis TCEC WITH (NOLOCK)    
+      ON TCEC.nosso_numero = TLOC.nosso_numero    
+     LEFT JOIN ramosdiversos..tab_ctrl_emis_compl TCEM WITH (NOLOCK)    
+      ON TCEC.nosso_numero = TCEM.nosso_numero    
+     WHERE TPED.cod_estip = 20    
+     AND TLOC.num_insp = 0    
+     AND TLOC.insp_obr = 1    
+     AND TLOC.nosso_numero = @Novo_NosNumero    
+    
+    INSERT INTO ramosdiversos..tab_trans_cobert_insp (nosso_numero,    
+    num_ped,    
+    num_item,    
+    num_cotac,    
+    num_insp,    
+    cod_cobert,    
+    lmg_cobert)    
+     SELECT    
+      TPCO.nosso_numero,    
+      TPCO.num_ped,    
+      TPCO.num_item,    
+      TTIN.num_cotac,    
+      TTIN.num_insp,    
+      TPCO.cod_cobert,    
+      TPCO.val_is    
+     FROM    
+     ramosdiversos..tab_ped_cobert TPCO WITH (NOLOCK)    
+     INNER JOIN ramosdiversos..tab_trans_insp TTIN WITH (NOLOCK)    
+      ON TTIN.nosso_numero = TPCO.nosso_numero    
+      AND TTIN.num_item = TPCO.num_item    
+     WHERE TPCO.nosso_numero = @Novo_NosNumero    
+   END    
+    
+   -- DANIEL RIBEIRO - Copiar dados do corretor nos dados adicionais de inspeção - INICIO                    
+   BEGIN TRY    
+    INSERT INTO tab_ped_insp_compl (cod_ramo,    
+    nosso_numero,    
+    num_item,    
+    num_pi,    
+    pess_contato_2,    
+    num_tel_2,    
+    dsc_email,    
+    dsc_ponto_ref)    
+     SELECT    
+      FTPL.cod_ramo,    
+      @Novo_NosNumero AS NOSSO_NUMERO,    
+      FTPL.num_item,    
+      FTPL.num_pi,    
+      TC.corretor AS PESS_CONTATO_2,    
+      '(' + CONVERT(varchar(2), CONVERT(numeric(4), ddd_fone)) + ')' + num_telefone AS NUM_TEL_2,    
+      TC.email_corretor AS DSC_EMAIL,    
+      'Informações com o corretor' AS DSC_PONTO_REF    
+     FROM    
+     ftp_tab_ped_loc FTPL    
+     INNER JOIN ftp_tab_ped_corr FTPC    
+      ON FTPC.nosso_numero = FTPL.nosso_numero    
+      AND FTPC.num_ordem_corr = 1    
+     INNER JOIN ged..tbs_corretor TC    
+      ON TC.cod_corretor = FTPC.cod_corr    
+     WHERE FTPL.nosso_numero = @Nosso_Numero    
+     AND NOT EXISTS (SELECT    
+      1    
+     FROM tab_ped_insp_compl TPIC    
+     WHERE TPIC.nosso_numero = @Novo_NosNumero    
+     AND TPIC.num_item = FTPL.num_item)    
+    
+    UPDATE TPIC    
+    SET PESS_CONTATO_2 = TC.corretor,    
+      NUM_TEL_2 = '(' + CONVERT(varchar(2), CONVERT(numeric(4), TC.ddd_fone)) + ')' + TC.num_telefone,    
+      DSC_EMAIL = TC.email_corretor,    
+      DSC_PONTO_REF = 'Informações com o corretor'    
+    FROM tab_ped_insp_compl TPIC    
+    INNER JOIN tab_ped_loc TPL    
+     ON TPL.nosso_numero = TPIC.nosso_numero    
+     AND TPL.num_item = TPIC.num_item    
+     AND TPL.insp_obr = 1    
+    INNER JOIN tab_ped_corr TPC    
+     ON TPC.nosso_numero = TPL.nosso_numero    
+     AND TPC.num_ordem_corr = 1    
+    INNER JOIN ged..tbs_corretor TC    
+     ON TC.cod_corretor = TPC.cod_corr    
+    WHERE TPL.nosso_numero = @Novo_NosNumero    
+    
+    /*                    
+                                 
+                    */    
+    PRINT 'Dados adicionais de inspeção incluídos com sucesso'    
+   END TRY    
+    
+   BEGIN CATCH    
+    PRINT 'Erro ao incluir dados adicionais de inspeção'    
+   END CATCH    
+    
+    -- DANIEL RIBEIRO - Copiar dados do corretor nos dados adicionais de inspeção - FIM                   
+    
+    -- DANIEL RIBEIRO - Copiar dados do corretor nos dados adicionais de inspeção - FIM                    
+    --Tranferencia da regra de 917581 - Triunfo para 939571 - BR Insurance.    
+    IF @Corretor1 = 939571    
+    BEGIN    
+     INSERT INTO tab_ped_textos (nosso_numero,    
+     cod_org,    
+     cod_ramo,    
+     num_ped,    
+     num_apol,    
+     num_endo,    
+     num_pi,    
+     num_item,    
+     cod_cobert,    
+     tipo_texto,    
+     cod_texto,    
+     desc_texto,    
+     num_seq)    
+      SELECT    
+       @Novo_NosNumero AS NOSSO_NUMERO,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       @Num_PI AS NUM_PI,    
+       1 AS NUM_ITEM,    
+       1 AS COD_COBERT,    
+       1 AS TIPO_TEXTO,    
+       7029 AS COD_TEXTO,    
+       'Os locais de risco cobertos possuem sua vigência e cobertura estabelecida pela data das propostas de seguros que compõe e integram os relatórios que originam a emissão das apólices.' DESC_TEXTO,    
+       1 AS NUM_SEQ    
+    END    
+    
+    
+    PRINT 'Demais ajustes inseridos'    
+   -- DANIEL RIBEIRO - FIM                    
+   END    
+   ELSE  -- (IF @CodPlano = 20 )    
+   BEGIN    
+    IF @InspObr = 1    
+    BEGIN    
+     --Atualiza o campo para atualização do CNPJ / CPF                
+     UPDATE ramosdiversos..tab_trans_insp    
+     SET cod_status_i = 1,    
+       num_cgc_cpf = @CNPJ_CPF    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_status_i = 0    
+    END    
+    ELSE    
+    BEGIN    
+     --Atualiza o campo para atualização do CNPJ / CPF                          
+     UPDATE ramosdiversos..tab_trans_insp    
+     SET num_cgc_cpf = @CNPJ_CPF    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_status_i = 0    
+    END    
+    
+    UPDATE ramosdiversos..tab_trans_insp    
+    SET num_tel = p.num_tel,    
+      pess_cont = p.pess_cont    
+    FROM ramosdiversos..tab_trans_insp AS i    
+    INNER JOIN syasportal..tab_ped_insp AS p    
+     ON i.nosso_numero = p.nosso_numero    
+     AND cod_status_i = 1    
+   END    
+    
+    
+   IF (    
+    (@CodPlano = 20    
+    AND @CodRamo IN (112, 113))    
+    OR (@CodPlano BETWEEN 5061 AND 5064    
+    AND @CodRamo = 113)    
+    )    
+   BEGIN    
+    
+    /* Pronto para emitir*/    
+    UPDATE ramosdiversos..tab_ctrl_emis    
+    SET cod_iden_stat_acao = 0,    
+      dat_digit_mf = CONVERT(varchar, @DiaUtil, 112),    
+      HOR_DIGIT =    
+            CASE    
+             WHEN HOR_DIGIT = 0 THEN CONVERT(int, LEFT(REPLACE(CONVERT(varchar(20), GETDATE(), 114), ':', ''), 4))    
+             ELSE HOR_DIGIT    
+            END    
+    WHERE nosso_numero = @Novo_NosNumero    
+    
+    
+    
+   -- DANIEL RIBEIRO - Copiar o valor do Premio para a coluna Premio Informado - INICIO                    
+   BEGIN TRY    
+    UPDATE TPCC    
+    SET TPCC.val_pr_orig = TPC.val_pr,    
+      TPCC.premioinformado = '-1'    
+    FROM tab_ped_cobert_compl TPCC    
+    INNER JOIN tab_ped_cobert TPC    
+     ON TPC.nosso_numero = TPCC.nosso_numero    
+     AND TPC.num_pi = TPCC.num_pi    
+     AND TPC.cod_cobert = TPCC.cod_cobert    
+     AND TPC.num_item = TPCC.num_item    
+    WHERE TPCC.nosso_numero = @Novo_NosNumero    
+    
+    PRINT 'Valores de premio informado incluidos com sucesso'    
+   END TRY    
+    
+   BEGIN CATCH    
+    PRINT 'Erro ao alterar os valores de premio informado'    
+   END CATCH    
+    
+    -- DANIEL RIBEIRO - Copiar o valor do Premio para a coluna Premio Informado - FIM                    
+    -- DANIEL RIBEIRO - Ajustes diversos para Imobiliario                    
+    -- Ajustar para não ter SISCOTA                    
+    UPDATE TP    
+    SET TP.num_cotac_lmi = ' ',    
+      TP.cod_iden_alt_corr = ' '    
+    FROM tab_ped TP    
+    WHERE TP.nosso_numero = @Novo_NosNumero    
+    
+    UPDATE TCE    
+    SET NUM_COTAC = '000000000000',    
+      TIP_COTAC = '1'    
+    FROM tab_ctrl_emis TCE    
+    WHERE TCE.nosso_numero = @Novo_NosNumero    
+    
+    -- Ajustar digito boleto                     
+    DECLARE @DigitoBoleto AS int,    
+        @NumBoleto AS varchar(7);    
+    
+    SELECT    
+     @NumBoleto = TCE.num_bloq    
+    FROM    
+    tab_ctrl_emis TCE    
+    WHERE TCE.nosso_numero = @Novo_NosNumero;    
+    
+    EXEC Pcalculadigitoboleto @NumBoleto,    
+                 @DigitoBoleto OUTPUT    
+    
+    UPDATE TCE    
+    SET DIG_BLOQUETO = @DigitoBoleto    
+    FROM tab_ctrl_emis TCE    
+    WHERE TCE.nosso_numero = @Novo_NosNumero    
+    
+    -- Ajustar status do boleto.                    
+    UPDATE P00    
+    SET [STATUS] = 2    
+    FROM syasportal..p0045200 P00    
+    WHERE P00.nosso_numero = @Nosso_Numero    
+    AND P00.[status] = 1    
+    
+    -- Ajustar o tipo de pessoa na tabela de beneficiários            
+    UPDATE TPLP    
+    SET TIP_PESSOA =    
+            CASE    
+             WHEN LEN(TPLP.NUM_CPF_CNPJ) > 11 THEN 1    
+             ELSE 2    
+            END    
+    FROM TAB_PED_LOC_PESSOAS TPLP    
+    WHERE TPLP.NOSSO_NUMERO = @Novo_NosNumero    
+    
+    -- Ajustar o COD_UNID_PROD caso esteja zerado.            
+    UPDATE TP    
+    SET COD_UNID_PROD = GTC.cod_unid    
+    FROM TAB_PED TP    
+    INNER JOIN TAB_PED_CORR TPC    
+     ON TPC.NOSSO_NUMERO = TP.NOSSO_NUMERO    
+     AND TPC.NUM_ORDEM_CORR = 1    
+    INNER JOIN Ged..Tbs_Corretor GTC    
+     ON GTC.cod_corretor = TPC.COD_CORR    
+    WHERE TP.COD_UNID_PROD = 0    
+    AND TP.NOSSO_NUMERO = @Novo_NosNumero    
+  
+  -- Inserir textos de especificação   
+ IF @CodRamo = 112 AND @CodPlano = 20 AND @DiaUtil >= '2022-02-26' --JIRA-329905 -Imobiliários - Alteração do processo susep secundário de RC  
+ BEGIN  
+     INSERT INTO tab_ped_espec (nosso_numero,    
+     cod_espec,    
+     cod_org,    
+     cod_ramo,    
+     num_ped,    
+     num_apol,    
+     num_endo,    
+     num_pag,    
+     qtd_vias,    
+     espec_lin1,    
+     espec_lin2,    
+     espec_lin3,    
+     espec_lin4,    
+     espec_lin5,    
+     espec_lin6,    
+     espec_lin7,    
+     espec_lin8,    
+     espec_lin9,    
+     espec_lin10,    
+     espec_lin11,    
+     espec_lin12,    
+     espec_lin13,    
+     espec_lin14,    
+     espec_lin15,    
+     espec_lin16,    
+     espec_lin17,    
+     espec_lin18,    
+     espec_lin19,    
+     espec_lin20,    
+     num_pi)    
+      SELECT    
+       @Novo_NosNumero AS Nosso_Numero,    
+       6500 AS COD_ESPEC,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       1 AS NUM_PAG,    
+       1 AS QTD_VIAS,    
+       --'SOMPO Empresarial - Processo SUSEP N. 15414.005204/2005-65 ' ESPEC_LIN1,    
+    'SOMPO Empresarial - Processo SUSEP N. 15414.900218/2017-28 ' ESPEC_LIN1,   
+       '(Cob. Resp. Civil - 15414.901792/2013-70)' ESPEC_LIN2,    
+       ' ' ESPEC_LIN3,    
+       'SUSEP - SUPERINTENDENCIA DE SEGUROS PRIVADOS - AUTARQUIA FEDERAL' ESPEC_LIN4,    
+       'RESPONSAVEL PELA FISCALIZACAO, NORMATIZACAO E CONTROLE DOS MERCADOS DE' ESPEC_LIN5,    
+       'SEGURO, PREVIDENCIA COMPLEMENTAR ABERTA, CAPITACIZACAO, RESSEGURO E' ESPEC_LIN6,    
+       'CORRETAGEM DE SEGUROS.' ESPEC_LIN7,    
+       'TELEFONE DE ATENDIMENTO AO PUBLICO (SUSEP)-0800 021 8484 DAS 9:30HS AS 17:00HS' ESPEC_LIN8,    
+       ' ' ESPEC_LIN9,    
+       ' ' ESPEC_LIN10,    
+       ' ' ESPEC_LIN11,    
+       ' ' ESPEC_LIN12,    
+       ' ' ESPEC_LIN13,    
+       ' ' ESPEC_LIN14,    
+       ' ' ESPEC_LIN15,    
+       ' ' ESPEC_LIN16,    
+       ' ' ESPEC_LIN17,    
+       ' ' ESPEC_LIN18,    
+       ' ' ESPEC_LIN19,    
+       ' ' ESPEC_LIN20,    
+       @Num_PI AS NUM_PI     
+ END  
+ ELSE IF @CodRamo = 112    
+    BEGIN    
+     INSERT INTO tab_ped_espec (nosso_numero,    
+     cod_espec,    
+     cod_org,    
+     cod_ramo,    
+     num_ped,    
+     num_apol,    
+     num_endo,    
+     num_pag,    
+     qtd_vias,    
+     espec_lin1,    
+     espec_lin2,    
+     espec_lin3,    
+     espec_lin4,    
+     espec_lin5,    
+     espec_lin6,    
+     espec_lin7,    
+     espec_lin8,    
+     espec_lin9,    
+     espec_lin10,    
+     espec_lin11,    
+     espec_lin12,    
+     espec_lin13,    
+     espec_lin14,    
+     espec_lin15,    
+     espec_lin16,    
+     espec_lin17,    
+     espec_lin18,    
+     espec_lin19,    
+     espec_lin20,    
+     num_pi)    
+      SELECT    
+       @Novo_NosNumero AS Nosso_Numero,    
+       6500 AS COD_ESPEC,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       1 AS NUM_PAG,    
+       1 AS QTD_VIAS,    
+       --'SOMPO Empresarial - Processo SUSEP N. 15414.005204/2005-65 ' ESPEC_LIN1,    
+    'SOMPO Empresarial - Processo SUSEP N. 15414.900218/2017-28 ' ESPEC_LIN1,   
+       '(Cob. Resp. Civil - 15414.901290/2013-49)' ESPEC_LIN2,    
+       ' ' ESPEC_LIN3,    
+       'SUSEP - SUPERINTENDENCIA DE SEGUROS PRIVADOS - AUTARQUIA FEDERAL' ESPEC_LIN4,    
+       'RESPONSAVEL PELA FISCALIZACAO, NORMATIZACAO E CONTROLE DOS MERCADOS DE' ESPEC_LIN5,    
+       'SEGURO, PREVIDENCIA COMPLEMENTAR ABERTA, CAPITACIZACAO, RESSEGURO E' ESPEC_LIN6,    
+       'CORRETAGEM DE SEGUROS.' ESPEC_LIN7,    
+       'TELEFONE DE ATENDIMENTO AO PUBLICO (SUSEP)-0800 021 8484 DAS 9:30HS AS 17:00HS' ESPEC_LIN8,    
+       ' ' ESPEC_LIN9,    
+       ' ' ESPEC_LIN10,    
+       ' ' ESPEC_LIN11,    
+       ' ' ESPEC_LIN12,    
+       ' ' ESPEC_LIN13,    
+       ' ' ESPEC_LIN14,    
+       ' ' ESPEC_LIN15,    
+       ' ' ESPEC_LIN16,    
+       ' ' ESPEC_LIN17,    
+       ' ' ESPEC_LIN18,    
+       ' ' ESPEC_LIN19,    
+       ' ' ESPEC_LIN20,    
+       @Num_PI AS NUM_PI    
+    END    
+    
+    set @TxtEspecSusepImobiliario = ''    
+ set @TxtEspecSusepImobiliarioAux = ''  
+    IF @CodRamo = 113    
+     AND @CodPlano = 20    
+    BEGIN    
+    
+     SET @TxtEspecSusepImobiliario = 'SOMPO Residencial - Processo SUSEP N. 15414.900228/2017-63'    
+     IF @NumApolEndosso > 0     
+     BEGIN    
+    IF EXISTS(SELECT 1 FROM TAB_APOL WHERE NUM_APOL = @NumApolEndosso AND DAT_EMIS <= '20200117')    
+    BEGIN    
+    SET @TxtEspecSusepImobiliario = 'SOMPO Residencial - Processo SUSEP N. 15414.005203/2005-11'    
+    END    
+     END   
+    
+  --JIRA-329905 -Imobiliários - Alteração do processo susep secundário de RC  
+  SET @TxtEspecSusepImobiliarioAux = ' (Cob. Resp. Civil - 15414.901290/2013-49)'  
+  IF @DiaUtil >= '2022-02-26'   
+  BEGIN  
+  SET @TxtEspecSusepImobiliarioAux = ' (Cob. Resp. Civil - 15414.901794/2013-69)'  
+  END   
+    
+     INSERT INTO tab_ped_espec (nosso_numero, cod_espec, cod_org, cod_ramo, num_ped, num_apol, num_endo, num_pag, qtd_vias, espec_lin1, espec_lin2, espec_lin3,    
+     espec_lin4, espec_lin5, espec_lin6, espec_lin7, espec_lin8, espec_lin9, espec_lin10, espec_lin11, espec_lin12, espec_lin13, espec_lin14,    
+     espec_lin15, espec_lin16, espec_lin17, espec_lin18, espec_lin19, espec_lin20, num_pi)    
+      SELECT    
+       @Novo_NosNumero AS Nosso_Numero,    
+       6500 AS COD_ESPEC,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       1 AS NUM_PAG,    
+       1 AS QTD_VIAS,    
+       --'SOMPO Residencial - Processo SUSEP N. 15414.005203/2005-11' ESPEC_LIN1,    
+       @TxtEspecSusepImobiliario ESPEC_LIN1,    
+  --JIRA-329905 -Imobiliários - Alteração do processo susep secundário de RC  
+       --' (Cob. Resp. Civil - 15414.901290/2013-49)' ESPEC_LIN2,   
+    @TxtEspecSusepImobiliarioAux ESPEC_LIN2,   
+       ' ' ESPEC_LIN3,    
+       'SUSEP - SUPERINTENDENCIA DE SEGUROS PRIVADOS - AUTARQUIA FEDERAL' ESPEC_LIN4,    
+       'RESPONSAVEL PELA FISCALIZACAO, NORMATIZACAO E CONTROLE DOS MERCADOS DE' ESPEC_LIN5,    
+       'SEGURO, PREVIDENCIA COMPLEMENTAR ABERTA, CAPITACIZACAO, RESSEGURO E' ESPEC_LIN6,    
+       'CORRETAGEM DE SEGUROS.' ESPEC_LIN7,    
+       'TELEFONE DE ATENDIMENTO AO PUBLICO (SUSEP)-0800 021 8484 DAS 9:30HS AS 17:00HS' ESPEC_LIN8,    
+       ' ' ESPEC_LIN9,    
+       ' ' ESPEC_LIN10,    
+       ' ' ESPEC_LIN11,    
+       ' ' ESPEC_LIN12,    
+       ' ' ESPEC_LIN13,    
+       ' ' ESPEC_LIN14,    
+       ' ' ESPEC_LIN15,    
+       ' ' ESPEC_LIN16,    
+       ' ' ESPEC_LIN17,    
+       ' ' ESPEC_LIN18,    
+       ' ' ESPEC_LIN19,    
+       ' ' ESPEC_LIN20,    
+       @Num_PI AS NUM_PI    
+    
+    
+     INSERT INTO tab_ped_espec (nosso_numero, cod_espec, cod_org, cod_ramo, num_ped, num_apol, num_endo, num_pag, qtd_vias, espec_lin1, espec_lin2, espec_lin3,    
+     espec_lin4, espec_lin5, espec_lin6, espec_lin7, espec_lin8, espec_lin9, espec_lin10, espec_lin11, espec_lin12, espec_lin13, espec_lin14,    
+     espec_lin15, espec_lin16, espec_lin17, espec_lin18, espec_lin19, espec_lin20, num_pi)    
+      SELECT    
+       @Novo_NosNumero AS Nosso_Numero,    
+       6110 AS COD_ESPEC,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       2 AS NUM_PAG,    
+       1 AS QTD_VIAS,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 1)    
+       ESPEC_LIN1,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 2)    
+       ESPEC_LIN2,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 3)    
+       ESPEC_LIN3,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 4)    
+       ESPEC_LIN4,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 5)    
+       ESPEC_LIN5,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 6)    
+       ESPEC_LIN6,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 7)    
+       ESPEC_LIN7,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 8)    
+       ESPEC_LIN8,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 9)    
+       ESPEC_LIN9,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 10)    
+       ESPEC_LIN10,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 11)    
+       ESPEC_LIN11,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 12)    
+       ESPEC_LIN12,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 13)    
+       ESPEC_LIN13,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 14)    
+       ESPEC_LIN14,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 15)    
+       ESPEC_LIN15,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 16)    
+       ESPEC_LIN16,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 17)    
+       ESPEC_LIN17,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 18)    
+       ESPEC_LIN18,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 19)    
+       ESPEC_LIN19,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6110    
+       AND num_seq = 20)    
+       ESPEC_LIN20,    
+       @Num_PI AS NUM_PI    
+    
+    END    
+    
+    IF @CodRamo = 113    
+     AND @CodPlano BETWEEN 5061 AND 5064    
+    BEGIN    
+     INSERT INTO tab_ped_espec (nosso_numero, cod_espec, cod_org, cod_ramo, num_ped, num_apol, num_endo, num_pag, qtd_vias, espec_lin1, espec_lin2, espec_lin3,    
+     espec_lin4, espec_lin5, espec_lin6, espec_lin7, espec_lin8, espec_lin9, espec_lin10, espec_lin11, espec_lin12, espec_lin13, espec_lin14,    
+     espec_lin15, espec_lin16, espec_lin17, espec_lin18, espec_lin19, espec_lin20, num_pi)    
+      SELECT    
+       @Novo_NosNumero AS NOSSO_NUMERO,    
+       6500 AS COD_ESPEC,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       1 AS NUM_PAG,    
+       1 AS QTD_VIAS,    
+       'SOMPO Residencial - Processo SUSEP N. 15414.003659/2004-65' ESPEC_LIN1,    
+       ' (Cob. Resp. Civil - 15414.901290/2013-49)' ESPEC_LIN2,    
+       ' ' ESPEC_LIN3,    
+       'SUSEP - SUPERINTENDENCIA DE SEGUROS PRIVADOS - AUTARQUIA FEDERAL' ESPEC_LIN4,    
+       'RESPONSAVEL PELA FISCALIZACAO, NORMATIZACAO E CONTROLE DOS MERCADOS DE' ESPEC_LIN5,    
+       'SEGURO, PREVIDENCIA COMPLEMENTAR ABERTA, CAPITACIZACAO, RESSEGURO E' ESPEC_LIN6,    
+       'CORRETAGEM DE SEGUROS.' ESPEC_LIN7,    
+       'TELEFONE DE ATENDIMENTO AO PUBLICO (SUSEP)-0800 021 8484 DAS 9:30HS AS 17:00HS' ESPEC_LIN8,    
+       ' ' ESPEC_LIN9,    
+       ' ' ESPEC_LIN10,    
+       ' ' ESPEC_LIN11,    
+       ' ' ESPEC_LIN12,    
+       ' ' ESPEC_LIN13,    
+       ' ' ESPEC_LIN14,    
+       ' ' ESPEC_LIN15,    
+       ' ' ESPEC_LIN16,    
+       ' ' ESPEC_LIN17,    
+       ' ' ESPEC_LIN18,    
+       ' ' ESPEC_LIN19,    
+       ' ' ESPEC_LIN20,    
+       @Num_PI AS NUM_PI    
+    
+     INSERT INTO tab_ped_espec (nosso_numero, cod_espec, cod_org, cod_ramo, num_ped, num_apol, num_endo, num_pag, qtd_vias, espec_lin1, espec_lin2, espec_lin3,    
+     espec_lin4, espec_lin5, espec_lin6, espec_lin7, espec_lin8, espec_lin9, espec_lin10, espec_lin11, espec_lin12, espec_lin13, espec_lin14,    
+     espec_lin15, espec_lin16, espec_lin17, espec_lin18, espec_lin19, espec_lin20, num_pi)    
+      SELECT    
+       @Novo_NosNumero AS Nosso_Numero,    
+       6110 AS COD_ESPEC,    
+       0 AS COD_ORG,    
+       @CodRamo AS COD_RAMO,    
+       @NumPed AS NUM_PED,    
+       0 AS NUM_APOL,    
+       0 AS NUM_ENDO,    
+       2 AS NUM_PAG,    
+       1 AS QTD_VIAS,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 1)    
+       ESPEC_LIN1,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 2)    
+       ESPEC_LIN2,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 3)    
+       ESPEC_LIN3,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 4)    
+       ESPEC_LIN4,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 5)    
+       ESPEC_LIN5,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 6)    
+       ESPEC_LIN6,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 7)    
+       ESPEC_LIN7,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 8)    
+       ESPEC_LIN8,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 9)    
+       ESPEC_LIN9,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 10)    
+       ESPEC_LIN10,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 11)    
+       ESPEC_LIN11,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 12)    
+       ESPEC_LIN12,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 13)    
+       ESPEC_LIN13,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 14)    
+       ESPEC_LIN14,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 15)    
+       ESPEC_LIN15,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 16)    
+       ESPEC_LIN16,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 17)    
+       ESPEC_LIN17,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 18)    
+       ESPEC_LIN18,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 19)    
+       ESPEC_LIN19,    
+       (SELECT TOP 1    
+        dsc_dizer_endo    
+       FROM tab_ped_dizer_pad    
+       WHERE cod_dizer_pad = 6111    
+       AND num_seq = 20)    
+       ESPEC_LIN20,    
+       @Num_PI AS NUM_PI    
+    
+    END    
+    
+    -- Ajustar Prolaboristas                    
+    PRINT 'Ajuste Tab_Canal_Emiss Maritima'    
+    
+    UPDATE TCE    
+    SET COD_CANAL = TC.cod_corretor    
+    FROM ramosdiversos..tab_canal_emiss TCE    
+    INNER JOIN ged..tbs_corretor TC    
+     ON TC.cod_corr_ass = TCE.cod_corretor    
+     AND RIGHT(TC.cod_corr_mar, 5) = CONVERT(varchar(5), TCE.cod_canal)    
+    WHERE NOSSO_NUMERO = @Novo_NosNumero    
+    
+    -- Verificar se existe algum prolaborista na tabela que não tem correspondente na tabela de prolaboristas          
+    IF EXISTS (SELECT    
+      1    
+     FROM ramosdiversos..tab_canal_emiss TCE    
+     LEFT JOIN ged..tbs_corretor TC    
+      ON TCE.Cod_Canal = TC.cod_corretor    
+     WHERE TC.cod_corretor IS NULL    
+     AND NOSSO_NUMERO = @Novo_NosNumero)    
+    BEGIN    
+     RAISERROR (    
+     'Proposta possui ao menos um prolaborista com código Maritima que não tem correspondente na SOMPO.',    
+     16, -- Severity.            
+     1 -- State.                      
+     );    
+    END    
+    
+    -- Ajustar Código de agencia e código de conta quando vier invertido do Kitmar              
+    UPDATE TAB_PED    
+    SET COD_BCO_COBR = 33,    
+      COD_AGEN_ANGAR = 0    
+    WHERE COD_BCO_COBR = 0    
+    AND COD_AGEN_ANGAR = 33    
+    AND NOSSO_NUMERO = @Novo_NosNumero    
+    
+    PRINT 'Demais ajustes inseridos'    
+   -- DANIEL RIBEIRO - FIM                    
+   END    
+   ELSE    
+   BEGIN    
+    IF @InspObr = 1    
+    BEGIN    
+     --Atualiza o campo para atualização do CNPJ / CPF                
+     UPDATE ramosdiversos..tab_trans_insp    
+     SET cod_status_i = 1,    
+       num_cgc_cpf = @CNPJ_CPF    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_status_i = 0    
+    END    
+    ELSE    
+    BEGIN    
+     --Atualiza o campo para atualização do CNPJ / CPF                          
+     UPDATE ramosdiversos..tab_trans_insp    
+     SET num_cgc_cpf = @CNPJ_CPF    
+     WHERE nosso_numero = @Nosso_Numero    
+     AND cod_status_i = 0    
+    END    
+    
+    UPDATE ramosdiversos..tab_trans_insp    
+    SET num_tel = p.num_tel,    
+      pess_cont = p.pess_cont    
+    FROM ramosdiversos..tab_trans_insp AS i    
+    INNER JOIN syasportal..tab_ped_insp AS p    
+     ON i.nosso_numero = p.nosso_numero    
+     AND cod_status_i = 1    
+   END    
+    
+   /* - Solicitação do Produto Vida - 02/04/2015 - Rodrigo - Início */    
+   /*                  
+    @cod_tip_doc                      
+    1 - Seguro Novo                      
+    2 - Endosso (entre eles - faturamento)                      
+    3 - Renovação                       
+    */    
+   PRINT 'BPM - inicio'    
+   PRINT @CodRamo    
+   PRINT @cod_tip_doc    
+   PRINT @cod_origem    
+   PRINT @num_apol_mar    
+   PRINT @TipCotac    
+    
+   IF (    
+    @CodRamo = 810    
+    OR @CodRamo = 910    
+    OR @CodRamo = 930    
+    OR @CodRamo = 932    
+    )    
+   BEGIN    
+    IF (    
+     @cod_tip_doc = 1    
+     AND @cod_origem = 0    
+     AND @num_apol_mar = 0    
+     AND @TipCotac <> 6    
+     )    
+    BEGIN    
+     DELETE FROM ged.dbo.tbp_histemail    
+     WHERE num_pi = @num_pi    
+    
+     SET @Email1 = ''    
+     SET @Email2 = ''    
+     SET @Email3 = ''    
+     SET @EmailAux = ''    
+    
+     UPDATE ged.dbo.tab_triagem    
+     SET ind_primeiraexec = 1    
+     WHERE num_pi = @num_pi    
+    
+     -- Permitir recusa pelo BPM                      
+     UPDATE ged.dbo.tab_ctrl_emis    
+     SET cod_iden_stat_acao = 5    
+     WHERE num_pi = @num_pi    
+    
+     /***** Decomentado pois não será mais usado o e-mail eliomars@maritima.com.br - Thiago - 13/04/2015 - Início *****/    
+     DECLARE cur_email1 CURSOR FOR    
+     SELECT DISTINCT    
+      email    
+     FROM ged.dbo.tab_corr_email    
+     WHERE cod_corr = @Corretor1    
+     AND num_dept = 9700;    
+    
+     OPEN cur_email1;    
+    
+     FETCH NEXT    
+     FROM cur_email1    
+     INTO @EmailAux    
+    
+     WHILE @@FETCH_STATUS = 0    
+     BEGIN    
+      IF (LEN(@Email1) + LEN(RTRIM(@EmailAux))) < 599    
+      BEGIN    
+       SET @Email1 = @Email1 + RTRIM(@EmailAux) + ';'    
+      END    
+    
+      FETCH NEXT    
+      FROM cur_email1    
+      INTO @EmailAux;    
+     END    
+    
+     CLOSE cur_email1;    
+    
+     -- Tira o cursor da memória                            
+     DEALLOCATE cur_email1;    
+    
+     SELECT    
+      @Email1 = email_corretor    
+     FROM    
+     ged.dbo.tbs_corretor    
+     WHERE cod_corretor = @Corretor1    
+    
+     SET @Email1 = @Email1 + ';'    
+    
+     IF @Corretor2 <> 0    
+     BEGIN    
+      DECLARE cur_email2 CURSOR FOR    
+      SELECT DISTINCT    
+       email    
+      FROM ged.dbo.tab_corr_email    
+      WHERE cod_corr = @Corretor2    
+      AND num_dept = 9700;    
+    
+      OPEN cur_email2;    
+    
+      FETCH NEXT    
+      FROM cur_email2    
+      INTO @EmailAux    
+    
+      SET @Email2 = ''    
+    
+      WHILE @@FETCH_STATUS = 0    
+      BEGIN    
+       IF (LEN(@Email1) + LEN(RTRIM(@EmailAux))) < 599    
+        SET @Email1 = @Email1 + RTRIM(@EmailAux) + ';'    
+    
+       FETCH NEXT    
+       FROM cur_email2    
+       INTO @EmailAux;    
+      END    
+    
+      CLOSE cur_email2;    
+    
+      -- Tira o cursor da memória                            
+      DEALLOCATE cur_email2;    
+    
+      IF @Email2 = ''    
+      BEGIN    
+       SELECT    
+        @Email2 = email_corretor    
+       FROM    
+       ged.dbo.tbs_corretor    
+       WHERE cod_corretor = @Corretor2    
+    
+       SET @Email1 = @Email1 + RTRIM(@Email2) + ';'    
+      END    
+     END    
+    
+     IF @Corretor3 <> 0    
+     BEGIN    
+      DECLARE cur_email3 CURSOR FOR    
+      SELECT DISTINCT    
+       email    
+      FROM ged.dbo.tab_corr_email    
+      WHERE cod_corr = @Corretor3    
+      AND num_dept = 9700;    
+    
+      OPEN cur_email3;    
+    
+      FETCH NEXT    
+      FROM cur_email3    
+      INTO @EmailAux    
+    
+      SET @Email2 = ''    
+    
+      WHILE @@FETCH_STATUS = 0    
+      BEGIN    
+       IF (LEN(@Email1) + LEN(RTRIM(@EmailAux))) < 599    
+        SET @Email1 = @Email1 + RTRIM(@EmailAux) + ';'    
+    
+       FETCH NEXT    
+       FROM cur_email3    
+       INTO @EmailAux;    
+      END    
+    
+      CLOSE cur_email3;    
+    
+      -- Tira o cursor da memória                            
+      DEALLOCATE cur_email3;    
+    
+      IF @Email3 = ''    
+      BEGIN    
+       SELECT    
+        @Email3 = email_corretor    
+       FROM    
+       ged.dbo.tbs_corretor    
+       WHERE cod_corretor = @Corretor3    
+    
+       SET @Email1 = @Email1 + RTRIM(@Email3) + ';'    
+      END    
+     END    
+    
+     /***** Descomentado pois não será mais usado o e-mail eliomars@maritima.com.br - Thiago - 24/06/2015 - Final *****/    
+     INSERT INTO ged.dbo.tab_stat_emis (num_pi,    
+     status_acao,    
+     status_resposta,    
+     status_agente,    
+     data_acao)    
+      VALUES (@Num_PI, 5, 0, 0, CONVERT(varchar, GETDATE(), 112))    
+    
+     PRINT @CodRamo    
+    
+     SET @CorpoEmail = '- Proposta assinada pelo segurado/corretor' + CHAR(13)    
+    
+     PRINT @CorpoEmail    
+    
+     INSERT INTO ged.dbo.tab_prop_mensagem (num_pi,    
+     item_pi,    
+     cod_mensagem,    
+     cod_tip_mensagem,    
+     motivo,    
+     dat_digit,    
+     dat_liber,    
+     hor_liber)    
+      VALUES (@num_pi, 1, 8109, 2, '', CONVERT(varchar, GETDATE(), 112), 0, 0)    
+    
+     INSERT INTO ged.dbo.tab_prop_mensagem (num_pi,    
+     item_pi,    
+     cod_mensagem,    
+     cod_tip_mensagem,    
+     motivo,    
+     dat_digit,    
+     dat_liber,    
+     hor_liber)    
+      VALUES (@num_pi, 0, 9116, 2, 'ANÁLISE DA SUBSCRIÇÃO', CONVERT(varchar, GETDATE(), 112), 0, 0)    
+    
+     INSERT INTO ged.dbo.tbp_histemail (num_pi,    
+     hist_email,    
+     dat_geracao,    
+     nom_membro,    
+     end_email,    
+     status_acao,    
+     status_envio,    
+     dat_ult_alerta,    
+     pendencia)    
+      VALUES (@Num_PI, @CorpoEmail, GETDATE(), 'AGENTE', @Email1, 10, 0, NULL, 2)    
+    --@Num_PI, @CorpoEmail, getdate(), 'AGENTE', 'eliomars@maritima.com.br', 10, 0, null, 2)                          
+    END    
+   END    
+    
+   -- 2024-02-16 - Inicio - ajuste SIES  
+   -- Validar Ramo, Regra (Ativo, CodRamo, Corretor, CPF-CNPJ)  
+   declare @ParamCodigo as integer  
+   declare @ParamTexto as varchar(2000)  
+  
+   IF (@CodRamo = 300 OR @CodRamo = 620 OR @CodRamo = 710)  
+   Begin  
+  -- Validar regra e recuperar parametros  
+  select top 1 @ParamCodigo = ParamCodigo, @ParamTexto=ParamTexto  
+  from Ged.dbo.bpm_RegraSIES (nolock)   
+     where Ativo = 1   
+     and CodRamo = @CodRamo  
+     and (CodCorretor = @Corretor1 or CodCorretor = @Corretor2 or CodCorretor = @Corretor3)  
+     and convert(numeric(14), ParamCPFCNPJ) = @CNPJ_CPF  
+  
+  if (@ParamCodigo = null)  
+  Begin  
+   set @ParamCodigo = 0  
+   set @ParamTexto = ''  
+  End  
+
+  -- Existe regra, gerar tarefa BPM e mensagem  
+  if (@ParamCodigo > 0)  
+  Begin  
+   if not exists (select top 1 num_pi from Ged.dbo.tab_stat_emis where num_pi=@NUM_PI and status_acao=40 and status_resposta=0 and status_agente=0)  
+   Begin  
+    insert into Ged.dbo.tab_stat_emis (num_pi, status_acao, status_resposta, status_agente, data_acao)   
+    values (@NUM_PI, 40, 0, 0, CONVERT(varchar, GETDATE(), 112) )  
+   End  
+  
+   if not exists (select top 1 num_pi from Ged.dbo.tab_Prop_Mensagem where num_pi = @NUM_PI and cod_mensagem = @ParamCodigo and item_pi = 999)  
+   Begin  
+    insert into Ged.dbo.tab_Prop_Mensagem (num_pi, item_pi, cod_mensagem, cod_tip_mensagem, motivo, dat_digit, dat_liber, hor_liber)   
+    values (@NUM_PI, 999, @ParamCodigo, 2, @ParamTexto, CONVERT(varchar, GETDATE(), 112) , '0', '0')  
+   End  
+  End  
+   End  
+   -- 2024-02-16 - Fim  
+  
+   PRINT 'BPM - fim'    
+    
+  
+   -- INSERE AS INSPEÇÕES PROGRAMADAS DE CLASSE 4 FEITAS PELA WEB    
+   PRINT 'Insere as inspeções'    
+   EXEC proc_InspecaoProgramadaInserir @Num_PI;    
+    
+   /*Inclui Log_Emissao*/    
+   IF @NumDV > 0    
+    AND (    
+    @CodRamo = 112    
+    OR @CodRamo = 113    
+    OR @CodRamo = 114    
+    )    
+   BEGIN    
+    INSERT INTO ramosdiversos..log_emissao    
+     VALUES (@Nosso_Numero, @NumDV, @Novo_NosNumero, GETDATE(), NULL)    
+   END    
+   
+    
+   -- 2018-08-28: Repique Online    
+   declare @statusRepique int    
+    
+   set @statusRepique=isnull((select top 1 Status from Tab_ControleRepique (nolock) where Nosso_Numero = @Nosso_Numero Order by Id_Repique desc), 0)    
+     
+   if @statusRepique=1    
+   Begin    
+    print 'Repique OnLine - NN_New: ' + @Nosso_Numero_New    
+        
+    SELECT TOP 1 @Nosso_Numero_New = nosso_numero_new    
+    FROM ramosdiversos.dbo.tab_ped_num_copia (nolock)    
+    WHERE nosso_numero_old = @nosso_numero    
+    ORDER BY dat_copia DESC    
+    
+    UPDATE ramosdiversos..Tab_Ctrl_Emis SET tip_cotac = 'R' WHERE Nosso_Numero = @Nosso_Numero_New    
+   End    
+   -- Fim Repique Online   
+     COMMIT TRANSACTION @TranName   
+   SELECT    
+    @NUm_PI AS Protocolo   
+   
+   GOTO fim    
+  END TRY    
+   
+  BEGIN CATCH   
+  ROLLBACK TRANSACTION @TranName  
+   SET @Mensagem = ERROR_MESSAGE()    
+    
+   INSERT INTO ramosdiversos..tab_erro_transmissao (nosso_numero,    
+   num_pi,    
+   dat_err,    
+   step,    
+   msgerro)    
+    SELECT    
+     @Nosso_Numero,    
+     @Num_PI,    
+     CONVERT(varchar, GETDATE(), 112) + '' + REPLACE(CONVERT(varchar, GETDATE(), 108), ':', ''),    
+     @Step,    
+     @Mensagem    
+    
+   --PRINT 'ERRO NA CONFIRMAÇÃO.'                            
+   SELECT    
+    -1 AS Protocolo,    
+    @Mensagem AS MsgErro    
+  END CATCH    
+    
+  
+  
+ FIM:    
+ END    
