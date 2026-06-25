@@ -3371,7 +3371,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
    BEGIN    
     SELECT    
      @NomSegurado = [nom_segurado],    
-     @CNPJ_CPF_AGREGADO = [num_cgc_cpf],    
+     @CNPJ_CPF_AGREGADO = TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE([num_cgc_cpf], '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)),
      @CodRamo_AGREGADO = [cod_ramo],    
      @EndTipLogradouro = [cod_tip_logr],    
      @EndNomLogradouro = [nom_logr],    
@@ -3513,7 +3513,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     BEGIN    
      PRINT 'ERRO NO Tab_ConsDadosExternos do Agregado'    
     
-     SET @DscRetorno = '[ERR] Tab_ConsDadosExternos do Agregado: ' + @CodRetorno + ' Desc: ' + @DscRetorno    
+     SET @DscRetorno = '[ERR] Tab_ConsDadosExternos do Agregado: ' + CAST(@CodRetorno AS varchar) + ' Desc: ' + @DscRetorno
     
      RAISERROR (    
      @DscRetorno,    
@@ -3734,7 +3734,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     BEGIN    
      PRINT 'ERRO NO AJUSTE INTERFACE 2'    
     
-     SET @DscRetorno = '[ERR] Ajuste Inteface 2 : ' + @CodRetorno + ' Desc: ' + @DscRetorno    
+     SET @DscRetorno = '[ERR] Ajuste Inteface 2 : ' + CAST(@CodRetorno AS varchar) + ' Desc: ' + @DscRetorno
     
      RAISERROR (    
      @DscRetorno,    
