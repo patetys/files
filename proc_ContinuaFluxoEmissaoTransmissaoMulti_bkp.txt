@@ -371,7 +371,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
    END --if (@QtdFluxo <> 0)                      
     
    SELECT TOP 1    
-    @CNPJ_CPF = num_cgc_cpf,    
+    @CNPJ_CPF = TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)),
     @Cob_Telefones = num_fone,    
     @NomSegurado = nom_segurado,    
     @TipPessoa = tip_pessoa,    
