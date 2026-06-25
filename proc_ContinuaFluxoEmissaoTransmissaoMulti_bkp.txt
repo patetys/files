@@ -49,7 +49,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        @Dat_Proc numeric(14, 0),    
        @VarErro numeric(10),    
        @Num_PI_Anterior bigint,    
-       @CNPJ_CPF numeric(14),    
+       @CNPJ_CPF varchar(14),
        @Cob_Tip_Logradouro varchar(3),    
        @Cob_Nom_Logradouro varchar(50),    
        @Cob_Complemento varchar(20),    
@@ -150,7 +150,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        @COD_BCO_BOLETO int,    
        @COD_BCO_COBR decimal(3),    
        @COD_AGEN_BAS_COR decimal(4),    
-       @CNPJ_CPF_AGREGADO numeric(14),    
+       @CNPJ_CPF_AGREGADO varchar(14),
        @CodRamo_AGREGADO integer,    
        @Tipo_fone numeric(1),    
        @TIP_AGREGADO numeric(1),    
@@ -371,7 +371,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
    END --if (@QtdFluxo <> 0)                      
     
    SELECT TOP 1    
-    @CNPJ_CPF = TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)),
+    @CNPJ_CPF = REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', ''),
     @Cob_Telefones = num_fone,    
     @NomSegurado = nom_segurado,    
     @TipPessoa = tip_pessoa,    
@@ -2603,7 +2603,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     IF EXISTS (SELECT    
       1    
      FROM [P0044800].[dbo].[t0044800]    
-     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF)
+     WHERE num_cgc_cpf = @CNPJ_CPF)
     BEGIN
      SET @Step = 170
     
@@ -2632,7 +2632,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        [subtip_pessoa] = @TipPessoa,    
        [rendafatu] = @ValRenda,  
     NOME_SOCIAL = @NomeSocial  
-     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE([num_cgc_cpf], '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF
+     WHERE [num_cgc_cpf] = @CNPJ_CPF
 
      SET @Step = 171
     
@@ -2641,7 +2641,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
       @NomSegurado = nome_razao    
      FROM
      [P0044800].[dbo].[t0044800]
-     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF
+     WHERE num_cgc_cpf = @CNPJ_CPF
 
      SET @Step = 172
     
@@ -2741,7 +2741,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
       CONT.num_fone    
      FROM p0044800.dbo.tab_contatos CONT    
      WHERE CONT.num_fone = TEL.numero_telefone    
-     AND TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(CONT.num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF)
+     AND CONT.num_cgc_cpf = @CNPJ_CPF)
     
     SET @Step = 176    
     
@@ -3326,7 +3326,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
      [dat_processamento],    
      [hor_processamento],    
      [num_item])    
-      VALUES (@num_pi, @CodRamo, 1, 2, CAST(@CNPJ_CPF AS varchar), 0, '0', 0, '0', 0, '0', 0, 0, 0)    
+      VALUES (@num_pi, @CodRamo, 1, 2, @CNPJ_CPF, 0, '0', 0, '0', 0, '0', 0, 0, 0)
    END    
     END    
     
@@ -3371,7 +3371,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
    BEGIN    
     SELECT    
      @NomSegurado = [nom_segurado],    
-     @CNPJ_CPF_AGREGADO = TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE([num_cgc_cpf], '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)),
+     @CNPJ_CPF_AGREGADO = REPLACE(REPLACE(REPLACE(REPLACE([num_cgc_cpf], '.', ''), '-', ''), '/', ''), ' ', ''),
      @CodRamo_AGREGADO = [cod_ramo],    
      @EndTipLogradouro = [cod_tip_logr],    
      @EndNomLogradouro = [nom_logr],    
@@ -3502,7 +3502,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     [dat_processamento],    
     [hor_processamento],    
     [num_item])    
-     VALUES (@num_pi, @CodRamo_AGREGADO, 3, 2, CAST(@CNPJ_CPF_AGREGADO AS varchar), 0, '0', 0, '0', 0, '0', 0, 0, 0)    
+     VALUES (@num_pi, @CodRamo_AGREGADO, 3, 2, @CNPJ_CPF_AGREGADO, 0, '0', 0, '0', 0, '0', 0, 0, 0)
     
     SET @Step = 6    
     
@@ -3526,7 +3526,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     IF NOT EXISTS (SELECT    
       *    
      FROM [P0044800].[DBO].tab_contatos TEL    
-     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(TEL.num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO)
+     WHERE TEL.num_cgc_cpf = @CNPJ_CPF_AGREGADO)
     BEGIN    
      INSERT INTO [P0044800].[DBO].tab_contatos (num_cgc_cpf,    
      tipo_fone,    
@@ -3565,7 +3565,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        [num_pi] = @num_pi,    
        [cod_fone_principal] = 0,    
        [dt_alteracao] = CONVERT(varchar, GETDATE(), 112)    
-     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO
+     WHERE num_cgc_cpf = @CNPJ_CPF_AGREGADO
 
      SET @Step = 8
     END    
@@ -3579,7 +3579,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     IF EXISTS (SELECT    
       *    
      FROM [P0044800].[dbo].[t0044800]    
-     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO)
+     WHERE num_cgc_cpf = @CNPJ_CPF_AGREGADO)
     BEGIN
      UPDATE [P0044800].[dbo].[t0044800]
      SET [tip_pessoa] = @TIP_AGREGADO,    
@@ -3672,7 +3672,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD T0044807 Agregados INICIO                      
     DELETE FROM [P0044800].[dbo].[t0044807]    
     WHERE num_pi = @num_pi    
-     AND TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO
+     AND num_cgc_cpf = @CNPJ_CPF_AGREGADO
 
     SET @Step = 11
     
@@ -5069,7 +5069,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
      where Ativo = 1   
      and CodRamo = @CodRamo  
      and (CodCorretor = @Corretor1 or CodCorretor = @Corretor2 or CodCorretor = @Corretor3)  
-     and convert(numeric(14), ParamCPFCNPJ) = @CNPJ_CPF  
+     and ParamCPFCNPJ = @CNPJ_CPF
   
   if (@ParamCodigo = null)  
   Begin  
