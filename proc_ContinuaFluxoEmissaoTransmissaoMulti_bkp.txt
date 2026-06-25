@@ -2603,9 +2603,9 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     IF EXISTS (SELECT    
       1    
      FROM [P0044800].[dbo].[t0044800]    
-     WHERE num_cgc_cpf = @CNPJ_CPF)    
-    BEGIN    
-     SET @Step = 170    
+     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF)
+    BEGIN
+     SET @Step = 170
     
      UPDATE [P0044800].[dbo].[t0044800]    
      SET [tip_pessoa] = @TipPessoa,    
@@ -2632,18 +2632,18 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        [subtip_pessoa] = @TipPessoa,    
        [rendafatu] = @ValRenda,  
     NOME_SOCIAL = @NomeSocial  
-     WHERE [num_cgc_cpf] = @CNPJ_CPF    
-    
-     SET @Step = 171    
+     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE([num_cgc_cpf], '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF
+
+     SET @Step = 171
     
      --AJUSTE PARA ATUALIZAR O NOME DO SEGURADO DE ACORDO COM O CADASTRO NO SISCAD                                              
      SELECT    
       @NomSegurado = nome_razao    
-     FROM    
-     [P0044800].[dbo].[t0044800]    
-     WHERE num_cgc_cpf = @CNPJ_CPF    
-    
-     SET @Step = 172    
+     FROM
+     [P0044800].[dbo].[t0044800]
+     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF
+
+     SET @Step = 172
     
      UPDATE ramosdiversos.dbo.tab_ped    
      SET nom_segurado = @NomSegurado    
@@ -2741,7 +2741,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
       CONT.num_fone    
      FROM p0044800.dbo.tab_contatos CONT    
      WHERE CONT.num_fone = TEL.numero_telefone    
-     AND CONT.num_cgc_cpf = @CNPJ_CPF)    
+     AND TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(CONT.num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF)
     
     SET @Step = 176    
     
@@ -3526,7 +3526,7 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     IF NOT EXISTS (SELECT    
       *    
      FROM [P0044800].[DBO].tab_contatos TEL    
-     WHERE TEL.num_cgc_cpf = @CNPJ_CPF_AGREGADO)    
+     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(TEL.num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO)
     BEGIN    
      INSERT INTO [P0044800].[DBO].tab_contatos (num_cgc_cpf,    
      tipo_fone,    
@@ -3565,9 +3565,9 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        [num_pi] = @num_pi,    
        [cod_fone_principal] = 0,    
        [dt_alteracao] = CONVERT(varchar, GETDATE(), 112)    
-     WHERE num_cgc_cpf = @CNPJ_CPF_AGREGADO    
-    
-     SET @Step = 8    
+     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO
+
+     SET @Step = 8
     END    
     
     -- FIM                      
@@ -3579,9 +3579,9 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     IF EXISTS (SELECT    
       *    
      FROM [P0044800].[dbo].[t0044800]    
-     WHERE num_cgc_cpf = @CNPJ_CPF_AGREGADO)    
-    BEGIN    
-     UPDATE [P0044800].[dbo].[t0044800]    
+     WHERE TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO)
+    BEGIN
+     UPDATE [P0044800].[dbo].[t0044800]
      SET [tip_pessoa] = @TIP_AGREGADO,    
        [cod_tip_logr] = @EndTipLogradouro,    
        [nom_logr] = @EndNomLogradouro,    
@@ -3672,9 +3672,9 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
     -- ATUALIZAÇÃO DA NOVA TABELA DO SISCAD T0044807 Agregados INICIO                      
     DELETE FROM [P0044800].[dbo].[t0044807]    
     WHERE num_pi = @num_pi    
-     AND num_cgc_cpf = @CNPJ_CPF_AGREGADO    
-    
-    SET @Step = 11    
+     AND TRY_CAST(REPLACE(REPLACE(REPLACE(REPLACE(num_cgc_cpf, '.', ''), '-', ''), '/', ''), ' ', '') AS numeric(14)) = @CNPJ_CPF_AGREGADO
+
+    SET @Step = 11
     
     INSERT INTO [P0044800].[dbo].[t0044807] ([num_pi],    
     [num_cgc_cpf],    
