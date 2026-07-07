@@ -1,0 +1,26 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -c ' *)",
+      "Bash(awk -F: '$2 <= 6910 {last=$0} END {print last}')",
+      "Bash(awk -F: '$2 <= 6910')",
+      "Bash(awk -F: '{if \\($1+0 <= 6910\\) last=$0} END {print last}')",
+      "Bash(awk -F: '{n=$1+0; if \\(n <= 6910\\) {last_n=n; last_line=$0}} END {print last_n\": \"last_line}')",
+      "Bash(iconv -f ISO-8859-1 -t UTF-8 /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4/M46V999.cls)",
+      "Bash(iconv -f ISO-8859-1 -t UTF-8 /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4/M46V601.bas)",
+      "Bash(iconv -f ISO-8859-1 -t UTF-8 /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4/A46V601A.cls)",
+      "Bash(iconv -f ISO-8859-1 -t UTF-8 /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4/A46V712A.cls)",
+      "Bash(iconv -f ISO-8859-1 -t UTF-8 /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4/A46V718A.cls)",
+      "Bash(iconv -f ISO-8859-1 -t UTF-8 /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4/T46V201A.frm)",
+      "Bash(git -C /Users/sergiohenriquelima/files status)",
+      "Bash(git -C /Users/sergiohenriquelima/files log --oneline -5)",
+      "Bash(git -C /Users/sergiohenriquelima/files add proc_ContinuaFluxoEmissaoTransmissaoMulti_bkp.txt)",
+      "Bash(git -C /Users/sergiohenriquelima/files commit -m ' *)",
+      "Bash(git -C /Users/sergiohenriquelima/files push)",
+      "Bash(awk -F: '{print $1, $2}')"
+    ],
+    "additionalDirectories": [
+      "/Users/sergiohenriquelima/files"
+    ]
+  }
+}
