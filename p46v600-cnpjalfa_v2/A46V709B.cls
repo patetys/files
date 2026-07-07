@@ -1,0 +1,34 @@
+VERSION 1.0 CLASS
+BEGIN
+  MultiUse = -1  'True
+  Persistable = 0  'NotPersistable
+  DataBindingBehavior = 0  'vbNone
+  DataSourceBehavior  = 0  'vbNone
+  MTSTransactionMode  = 0  'NotAnMTSObject
+END
+Attribute VB_Name = "stcA46V709B"
+Attribute VB_GlobalNameSpace = False
+Attribute VB_Creatable = True
+Attribute VB_PredeclaredId = False
+Attribute VB_Exposed = False
+Option Explicit
+
+' ======================================================================================================================================================
+' Class Name: stcA46V709B  -- Tab_Ped_Com
+' Data/Hora: 05/09/2005 - 11:24:45
+' Sistema: Multi
+' Thais Juren Gomes
+' ======================================================================================================================================================
+
+' ======================================================================================================================================================
+Public Cod_User As String    'PK
+Public nosso_numero As String    'PK
+Public Dat_Alt As Double
+' ======================================================================================================================================================
+
+' ======================================================================================================================================================
+
+Public Property Get Class_ID() As String
+    Class_ID = CStr(Cod_User) & CStr(nosso_numero)
+End Property
+

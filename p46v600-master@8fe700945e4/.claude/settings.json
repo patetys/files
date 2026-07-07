@@ -17,7 +17,16 @@
       "Bash(git -C /Users/sergiohenriquelima/files add proc_ContinuaFluxoEmissaoTransmissaoMulti_bkp.txt)",
       "Bash(git -C /Users/sergiohenriquelima/files commit -m ' *)",
       "Bash(git -C /Users/sergiohenriquelima/files push)",
-      "Bash(awk -F: '{print $1, $2}')"
+      "Bash(awk -F: '{print $1, $2}')",
+      "Bash(xargs -I{} grep -l \"PR_I\\\\|EXEC\\\\|stored\\\\|procedure\" {})",
+      "Bash(git -C /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4 rev-parse --show-toplevel)",
+      "Bash(git -C /Users/sergiohenriquelima/files/p46v600-master@8fe700945e4 log --oneline -3)",
+      "Bash(git -C /Users/sergiohenriquelima/files show --stat fae3ac4)",
+      "Bash(git -C /Users/sergiohenriquelima/files cat-file -e HEAD:proc_ContinuaFluxoEmissaoTransmissaoMulti_bkp.txt)",
+      "Bash(git -C /Users/sergiohenriquelima/files log --oneline -- proc_ContinuaFluxoEmissaoTransmissaoMulti_bkp.txt)",
+      "Bash(git -C /Users/sergiohenriquelima/files show fae3ac4:proc_ContinuaFluxoEmissaoTransmissaoMulti_bkp.txt)",
+      "Read(//tmp/**)",
+      "Bash(git -C /Users/sergiohenriquelima/files show --stat 8971bde)"
     ],
     "additionalDirectories": [
       "/Users/sergiohenriquelima/files"
