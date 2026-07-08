@@ -49,8 +49,9 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        @Dat_Proc numeric(14, 0),      
        @VarErro numeric(10),      
        @Num_PI_Anterior bigint,      
-       @CNPJ_CPF varchar(18),
-       @Cob_Tip_Logradouro varchar(3),      
+       @CNPJ_CPF varchar(14),
+       @CNPJ_CPF_18 varchar(18),
+       @Cob_Tip_Logradouro varchar(3),
        @Cob_Nom_Logradouro varchar(50),      
        @Cob_Complemento varchar(20),      
        @Cob_Bairro varchar(30),      
@@ -150,7 +151,8 @@ DECLARE @TranName VARCHAR(20) = 'TR_TRANSMISSAO';
        @COD_BCO_BOLETO int,      
        @COD_BCO_COBR decimal(3),      
        @COD_AGEN_BAS_COR decimal(4),      
-       @CNPJ_CPF_AGREGADO varchar(18),
+       @CNPJ_CPF_AGREGADO varchar(14),
+       @CNPJ_CPF_AGREGADO_18 varchar(18),
        @CodRamo_AGREGADO integer,      
        @Tipo_fone numeric(1),      
        @TIP_AGREGADO numeric(1),      
@@ -2902,8 +2904,8 @@ so_numero
      SET @NUM_LOGR_SEGURADO = LEFT(@NUM_LOGR_SEGURADO, PATINDEX('%[^0-9]%', @NUM_LOGR_SEGURADO) - 1)      
     SET @Step = 1      
       
- SET @CNPJ_CPF =  RIGHT('000000000000000000' + @CNPJ_CPF, 18)  
-    EXEC p0044800.dbo.Sp_interfacecadastro @CNPJ_CPF,      
+ SET @CNPJ_CPF_18 =  RIGHT('000000000000000000' + @CNPJ_CPF, 18)
+    EXEC p0044800.dbo.Sp_interfacecadastro @CNPJ_CPF_18,
                         @NUM_PI,      
                         @NUM_LOGR_COBRANCA,      
                         @NUM_LOGR_SEGURADO,      
@@ -3723,9 +3725,9 @@ so_numero
       
     --   exec P0044800.dbo.sp_InterfaceCadastro  @CNPJ_CPF_AGREGADO, @NUM_PI, @EndNumLogradouro , @NUM_LOGR_SEGURADO,  @EndComplemento,     @DSC_COMPL_SEGURADO, @CodRamo_AGREGADO ,                 
     --   @CodPlano, @Cod_RamoSec, @NumApolEndosso ,  @CodRetorno   output, @DscRetorno output                        
-    SET @CNPJ_CPF_AGREGADO =  RIGHT('000000000000000000' + @CNPJ_CPF_AGREGADO, 18)  
-   
- EXEC p0044800.dbo.Sp_interfacecadastro @CNPJ_CPF_AGREGADO,      
+    SET @CNPJ_CPF_AGREGADO_18 =  RIGHT('000000000000000000' + @CNPJ_CPF_AGREGADO, 18)
+
+ EXEC p0044800.dbo.Sp_interfacecadastro @CNPJ_CPF_AGREGADO_18,
               @NUM_PI,      
               @NUM_LOGR_COBRANCA,      
               @EndNumLogradouro,      
